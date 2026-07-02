@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type {
   CreateProviderInput,
   Env,
+  ForwardRule,
   IngestInput,
   IngestResult,
   LoginCheckResult,
@@ -18,6 +19,7 @@ import type {
   SendInput,
   SendResultDTO,
   UpdateProviderInput,
+  UpsertForwardRuleInput,
   UpsertRuleInput,
   VerifyResult,
 } from "../shared/types";
@@ -50,7 +52,7 @@ export class MailboxDO extends DurableObject<Env> {
 
   // ─── 收信 ───
   precheck(input: PrecheckInput): PrecheckResult {
-    return doPrecheck(this.doCtx(), input.envelopeFrom, input.to);
+    return doPrecheck(this.doCtx(), input);
   }
 
   async ingest(input: IngestInput): Promise<IngestResult> {
@@ -344,6 +346,46 @@ export class MailboxDO extends DurableObject<Env> {
 
   deleteRule(id: string): void {
     this.sql.exec(`DELETE FROM rules WHERE id = ?`, id);
+  }
+
+  // ─── 转发规则管理 ───
+  listForwardRules(q: PageQuery): Page<ForwardRule> {
+    const totalRow = [
+      ...this.sql.exec(`SELECT COUNT(*) AS c FROM forward_rules`),
+    ] as Array<{ c: number }>;
+    const total = totalRow[0]?.c ?? 0;
+    const items = [
+      ...this.sql.exec(
+        `SELECT * FROM forward_rules ORDER BY id DESC LIMIT ? OFFSET ?`,
+        q.pageSize,
+        (q.page - 1) * q.pageSize,
+      ),
+    ] as unknown as ForwardRule[];
+    return buildPage(items, total, q);
+  }
+
+  upsertForwardRule(input: UpsertForwardRuleInput): { id: string } {
+    const id = input.id ?? ulid();
+    const now = Date.now();
+    // ON CONFLICT 不更新 created_at，编辑时保留原始创建时间
+    this.sql.exec(
+      `INSERT INTO forward_rules (id, match_from, match_to, target, keep_original, enabled, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET match_from=excluded.match_from, match_to=excluded.match_to,
+         target=excluded.target, keep_original=excluded.keep_original, enabled=excluded.enabled`,
+      id,
+      input.matchFrom ?? null,
+      input.matchTo ?? null,
+      input.target,
+      input.keepOriginal ? 1 : 0,
+      input.enabled ? 1 : 0,
+      now,
+    );
+    return { id };
+  }
+
+  deleteForwardRule(id: string): void {
+    this.sql.exec(`DELETE FROM forward_rules WHERE id = ?`, id);
   }
 
   // ─── 登录暴力破解防护 ───

@@ -21,6 +21,11 @@ import {
   verifyProvider,
 } from "./providers";
 import { deleteRule, listRules, upsertRule } from "./rules";
+import {
+  deleteForwardRule,
+  listForwardRules,
+  upsertForwardRule,
+} from "./forward-rules";
 
 export async function handleFetch(
   req: Request,
@@ -96,6 +101,16 @@ async function route(
     return upsertRule(req, env, seg[2]);
   if (seg[1] === "rules" && seg[2] && method === "DELETE")
     return deleteRule(env, seg[2]);
+
+  // /api/forward-rules ...
+  if (path === "/api/forward-rules" && method === "GET")
+    return listForwardRules(req, env);
+  if (path === "/api/forward-rules" && method === "POST")
+    return upsertForwardRule(req, env);
+  if (seg[1] === "forward-rules" && seg[2] && method === "PUT")
+    return upsertForwardRule(req, env, seg[2]);
+  if (seg[1] === "forward-rules" && seg[2] && method === "DELETE")
+    return deleteForwardRule(env, seg[2]);
 
   return error(404, "未找到路由");
 }

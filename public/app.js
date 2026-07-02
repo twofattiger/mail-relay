@@ -87,6 +87,7 @@ const NAV = [
   { key: "trash", label: "废纸篓", folder: "trash" },
   { key: "providers", label: "发送通道" },
   { key: "rules", label: "收信规则" },
+  { key: "forward-rules", label: "转发规则" },
 ];
 
 function renderShell(activeKey, contentNode) {
@@ -715,6 +716,158 @@ async function delRule(id) {
   renderRules();
 }
 
+// ── 转发规则 ──
+async function renderForwardRules() {
+  const content = el("div", {});
+  renderShell("forward-rules", content);
+  content.appendChild(
+    el(
+      "div",
+      { class: "toolbar" },
+      el("h2", {}, "转发规则"),
+      el("button", { class: "primary", onclick: () => openForwardRuleForm() }, "＋ 新增转发"),
+    ),
+  );
+  content.appendChild(
+    el(
+      "div",
+      { class: "empty", style: "margin-bottom:12px" },
+      "按邮件头 发件人/收件人 匹配来信并转发到指定邮箱（包含子串、大小写不敏感）。目标地址须为 Cloudflare 邮箱路由里已验证的 Destination，否则转发会失败。",
+    ),
+  );
+  const box = el("div", {}, "加载中…");
+  content.appendChild(box);
+  try {
+    const data = await api("/api/forward-rules?page=" + state.page + "&pageSize=20");
+    box.innerHTML = "";
+    if (!data.items.length) {
+      box.appendChild(el("div", { class: "empty" }, "暂无转发规则。"));
+      return;
+    }
+    const rows = data.items.map((r) =>
+      el(
+        "tr",
+        {},
+        el("td", {}, r.match_from || "任意"),
+        el("td", {}, r.match_to || "任意"),
+        el("td", {}, r.target),
+        el("td", {}, r.keep_original ? "转发并存档" : "转发后不存档"),
+        el("td", {}, r.enabled ? "启用" : "停用"),
+        el(
+          "td",
+          {},
+          el(
+            "div",
+            { class: "row-actions" },
+            el("button", { onclick: () => openForwardRuleForm(r) }, "编辑"),
+            el("button", { class: "danger", onclick: () => delForwardRule(r.id) }, "删除"),
+          ),
+        ),
+      ),
+    );
+    box.appendChild(
+      el(
+        "table",
+        {},
+        el(
+          "thead",
+          {},
+          el(
+            "tr",
+            {},
+            el("th", {}, "发件人含"),
+            el("th", {}, "收件人含"),
+            el("th", {}, "转发到"),
+            el("th", {}, "原件"),
+            el("th", {}, "状态"),
+            el("th", {}, "操作"),
+          ),
+        ),
+        el("tbody", {}, ...rows),
+      ),
+    );
+    content.appendChild(renderPager(data, renderForwardRules));
+  } catch (e) {
+    box.innerHTML = "";
+    box.appendChild(el("div", { class: "empty" }, "加载失败：" + e.message));
+  }
+}
+
+function openForwardRuleForm(existing) {
+  const matchFrom = el("input", {
+    placeholder: "发件人包含，如 boss@corp.com（留空=任意）",
+    value: existing?.match_from || "",
+  });
+  const matchTo = el("input", {
+    placeholder: "收件人包含，如 me@mydomain.com（留空=任意）",
+    value: existing?.match_to || "",
+  });
+  const target = el("input", {
+    placeholder: "转发目标邮箱（须为 CF 已验证 Destination）",
+    value: existing?.target || "",
+  });
+  const keep = el("select", {});
+  for (const [v, l] of [["1", "转发并存档"], ["0", "转发后不存档"]]) {
+    const opt = el("option", { value: v }, l);
+    // 新建默认「转发并存档」；编辑沿用原值
+    const cur = existing ? String(existing.keep_original) : "1";
+    if (cur === v) opt.selected = true;
+    keep.appendChild(opt);
+  }
+  const enabled = el("select", {});
+  for (const [v, l] of [["1", "启用"], ["0", "停用"]]) {
+    const opt = el("option", { value: v }, l);
+    if ((existing ? String(existing.enabled) : "1") === v) opt.selected = true;
+    enabled.appendChild(opt);
+  }
+  const err = el("div", { class: "msg-error" });
+
+  const mask = el("div", { class: "modal-mask" });
+  const close = () => mask.remove();
+  const saveBtn = el("button", { class: "primary" }, "保存");
+  saveBtn.onclick = async () => {
+    err.textContent = "";
+    try {
+      const payload = {
+        matchFrom: matchFrom.value.trim(),
+        matchTo: matchTo.value.trim(),
+        target: target.value.trim(),
+        keepOriginal: keep.value === "1",
+        enabled: enabled.value === "1",
+      };
+      const url = existing ? "/api/forward-rules/" + existing.id : "/api/forward-rules";
+      await api(url, { method: existing ? "PUT" : "POST", body: JSON.stringify(payload) });
+      close();
+      renderForwardRules();
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  };
+
+  mask.appendChild(
+    el(
+      "div",
+      { class: "modal" },
+      el("h3", {}, existing ? "编辑转发规则" : "新增转发规则"),
+      el("div", { class: "field" }, el("label", {}, "发件人包含"), matchFrom),
+      el("div", { class: "field" }, el("label", {}, "收件人包含"), matchTo),
+      el("div", { class: "field" }, el("label", {}, "转发到"), target),
+      el("div", { class: "field" }, el("label", {}, "原件处理"), keep),
+      el("div", { class: "field" }, el("label", {}, "状态"), enabled),
+      err,
+      el("div", { class: "modal-actions" }, el("button", { onclick: close }, "取消"), saveBtn),
+    ),
+  );
+  mask.addEventListener("click", (e) => e.target === mask && close());
+  document.body.appendChild(mask);
+}
+
+async function delForwardRule(id) {
+  if (!confirm("确定删除该转发规则？")) return;
+  await api("/api/forward-rules/" + id, { method: "DELETE" });
+  renderForwardRules();
+}
+
 // ── 路由 ──
 function renderApp() {
   const hash = location.hash.replace(/^#\//, "") || "inbox";
@@ -726,6 +879,10 @@ function renderApp() {
   if (head === "rules") {
     state.page = 1;
     return renderRules();
+  }
+  if (head === "forward-rules") {
+    state.page = 1;
+    return renderForwardRules();
   }
   const nav = NAV.find((n) => n.key === head);
   const folder = nav?.folder ?? "inbox";

@@ -1,4 +1,12 @@
-import type { Env, IngestInput, IngestResult, Rule } from "../shared/types";
+import type {
+  Env,
+  ForwardRule,
+  IngestInput,
+  IngestResult,
+  PrecheckInput,
+  PrecheckResult,
+  Rule,
+} from "../shared/types";
 import { ulid } from "../shared/ulid";
 import { parseEml, extractRefIds, type ParsedMail } from "../mime/parse";
 
@@ -12,20 +20,57 @@ function bodyInlineMax(env: Env): number {
   return parseInt(env.BODY_INLINE_MAX ?? "262144", 10) || 262144;
 }
 
-// precheck：SMTP 会话内毫秒级决策，只查 rules 黑名单
-export function precheck(
-  ctx: DoCtx,
-  envelopeFrom: string,
-  to: string,
-): { reject: boolean; reason?: string } {
+// precheck：SMTP 会话内毫秒级决策。先查 rules 黑名单拒收，再算转发规则（邮件头匹配）。
+export function precheck(ctx: DoCtx, input: PrecheckInput): PrecheckResult {
   const rules = loadEnabledRules(ctx);
   for (const r of rules) {
     if (r.action !== "reject") continue;
-    if (matchRule(r, envelopeFrom, to, "")) {
+    if (matchRule(r, input.envelopeFrom, input.to, "")) {
       return { reject: true, reason: "Rejected by rule" };
     }
   }
-  return { reject: false };
+  // 转发规则按邮件头 From/To 匹配（缺失时回退信封地址）
+  const { forwards, keepOriginal } = matchForwards(
+    ctx,
+    input.headerFrom ?? input.envelopeFrom,
+    input.headerTo ?? input.to,
+  );
+  return { reject: false, forwards, keepOriginal };
+}
+
+// 遍历启用的转发规则：收集去重目标；keepOriginal 为所有命中规则 keep_original 的并集
+// （任一命中要求留档即留档）。无命中则正常存档（keepOriginal=true, forwards=[]）。
+function matchForwards(
+  ctx: DoCtx,
+  from: string,
+  to: string,
+): { forwards: string[]; keepOriginal: boolean } {
+  const targets: string[] = [];
+  let anyMatched = false;
+  let keep = false;
+  for (const r of loadForwardRules(ctx)) {
+    if (!matchForwardRule(r, from, to)) continue;
+    anyMatched = true;
+    if (r.keep_original) keep = true;
+    const t = (r.target ?? "").trim();
+    if (t && !targets.includes(t)) targets.push(t);
+  }
+  return { forwards: targets, keepOriginal: anyMatched ? keep : true };
+}
+
+function loadForwardRules(ctx: DoCtx): ForwardRule[] {
+  return [
+    ...ctx.sql.exec(`SELECT * FROM forward_rules WHERE enabled = 1`),
+  ] as unknown as ForwardRule[];
+}
+
+function matchForwardRule(rule: ForwardRule, from: string, to: string): boolean {
+  const mf = (rule.match_from ?? "").trim().toLowerCase();
+  const mt = (rule.match_to ?? "").trim().toLowerCase();
+  if (!mf && !mt) return true; // 两者皆空 = 转发所有来信
+  const okFrom = !mf || from.toLowerCase().includes(mf);
+  const okTo = !mt || to.toLowerCase().includes(mt);
+  return okFrom && okTo;
 }
 
 export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResult> {

@@ -81,6 +81,19 @@ const MIGRATIONS: string[] = [
     enabled INTEGER
   );
   `,
+  // v2：转发规则表。与收信规则(rules)解耦：按邮件头 From/To 复合匹配 → 转发到指定地址；
+  // keep_original 决定命中后是否仍在本系统存档（0=仅转发不留档，转发失败则回退存档保底）。
+  `
+  CREATE TABLE IF NOT EXISTS forward_rules (
+    id            TEXT PRIMARY KEY,
+    match_from    TEXT,               -- 发件人(邮件头 From)包含匹配，空=任意
+    match_to      TEXT,               -- 收件人(邮件头 To)包含匹配，空=任意
+    target        TEXT NOT NULL,      -- 转发目标地址（须为 CF 邮箱路由已验证 Destination）
+    keep_original INTEGER DEFAULT 1,  -- 1=转发并存档；0=转发后不存档
+    enabled       INTEGER DEFAULT 1,
+    created_at    INTEGER
+  );
+  `,
 ];
 
 // 运行迁移：读取当前 schema_version，顺序执行未应用的增量。

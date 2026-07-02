@@ -48,6 +48,109 @@ describe("MailboxDO.precheck", () => {
   });
 });
 
+describe("MailboxDO.precheck 转发规则", () => {
+  it("无转发规则：forwards 空、keepOriginal 为真", async () => {
+    const r = await stub().precheck({
+      envelopeFrom: "a@b.com",
+      to: "me@mydomain.com",
+      size: 100,
+      headerFrom: "a@b.com",
+      headerTo: "me@mydomain.com",
+    });
+    expect(r.forwards ?? []).toEqual([]);
+    expect(r.keepOriginal).toBe(true);
+  });
+
+  it("发件人+收件人复合匹配命中，返回目标；keep_original=1 仍存档", async () => {
+    await stub().upsertForwardRule({
+      matchFrom: "boss@corp.com",
+      matchTo: "me@mydomain.com",
+      target: "phone@gmail.com",
+      keepOriginal: true,
+      enabled: true,
+    });
+    const hit = await stub().precheck({
+      envelopeFrom: "boss@corp.com",
+      to: "me@mydomain.com",
+      size: 100,
+      headerFrom: "Boss <boss@corp.com>",
+      headerTo: "me@mydomain.com",
+    });
+    expect(hit.forwards).toEqual(["phone@gmail.com"]);
+    expect(hit.keepOriginal).toBe(true);
+
+    // 收件人不符则不命中
+    const miss = await stub().precheck({
+      envelopeFrom: "boss@corp.com",
+      to: "other@mydomain.com",
+      size: 100,
+      headerFrom: "boss@corp.com",
+      headerTo: "other@mydomain.com",
+    });
+    expect(miss.forwards ?? []).toEqual([]);
+  });
+
+  it("keep_original=0：keepOriginal 为假（转发后不存档）", async () => {
+    await stub().upsertForwardRule({
+      matchFrom: "news@list.com",
+      target: "archive@gmail.com",
+      keepOriginal: false,
+      enabled: true,
+    });
+    const r = await stub().precheck({
+      envelopeFrom: "news@list.com",
+      to: "me@mydomain.com",
+      size: 100,
+      headerFrom: "news@list.com",
+      headerTo: "me@mydomain.com",
+    });
+    expect(r.forwards).toEqual(["archive@gmail.com"]);
+    expect(r.keepOriginal).toBe(false);
+  });
+
+  it("多条命中：目标去重，keepOriginal 取并集（任一要求留档即留档）", async () => {
+    await stub().upsertForwardRule({
+      matchFrom: "x@y.com",
+      target: "t1@gmail.com",
+      keepOriginal: false,
+      enabled: true,
+    });
+    await stub().upsertForwardRule({
+      matchTo: "me@mydomain.com",
+      target: "t1@gmail.com", // 与上条同目标，应去重
+      keepOriginal: true,
+      enabled: true,
+    });
+    const r = await stub().precheck({
+      envelopeFrom: "x@y.com",
+      to: "me@mydomain.com",
+      size: 100,
+      headerFrom: "x@y.com",
+      headerTo: "me@mydomain.com",
+    });
+    expect(r.forwards).toEqual(["t1@gmail.com"]);
+    expect(r.keepOriginal).toBe(true);
+  });
+
+  it("停用的转发规则不参与匹配", async () => {
+    await stub().upsertForwardRule({
+      matchFrom: "x@y.com",
+      target: "t@gmail.com",
+      keepOriginal: true,
+      enabled: false,
+    });
+    const r = await stub().precheck({
+      envelopeFrom: "x@y.com",
+      to: "me@mydomain.com",
+      size: 100,
+      headerFrom: "x@y.com",
+      headerTo: "me@mydomain.com",
+    });
+    expect(r.forwards ?? []).toEqual([]);
+    expect(r.keepOriginal).toBe(true);
+  });
+});
+
 describe("MailboxDO.ingest", () => {
   it("正常入库并可在列表查询到", async () => {
     const eml = buildEml({ subject: "第一封", messageId: "<m1@example.com>" });

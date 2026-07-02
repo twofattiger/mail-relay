@@ -106,16 +106,31 @@ export interface Rule {
   enabled: number;
 }
 
+// 转发规则（对应 forward_rules 表）：邮件头 From/To 复合匹配 → 转发到 target
+export interface ForwardRule {
+  id: string;
+  match_from: string | null;
+  match_to: string | null;
+  target: string;
+  keep_original: number; // 1=转发并存档；0=转发后不存档
+  enabled: number;
+  created_at: number | null;
+}
+
 // ─── RPC DTO ───────────────────────────────────────────────
 
 export interface PrecheckInput {
   envelopeFrom: string;
   to: string;
   size: number;
+  headerFrom?: string; // 邮件头 From（转发规则匹配用；缺失时回退信封 from）
+  headerTo?: string; // 邮件头 To（转发规则匹配用；缺失时回退信封 to）
 }
 export interface PrecheckResult {
   reject: boolean;
   reason?: string;
+  forwards?: string[]; // 命中转发规则需转发的目标地址（已去重）
+  keepOriginal?: boolean; // 转发命中时是否仍存档；无命中恒为 true
 }
 
 export interface IngestInput {
@@ -184,6 +199,16 @@ export interface UpsertRuleInput {
   kind: string;
   pattern: string;
   action: string;
+  enabled: boolean;
+}
+
+// 转发规则管理 DTO
+export interface UpsertForwardRuleInput {
+  id?: string;
+  matchFrom?: string; // 空 = 任意发件人
+  matchTo?: string; // 空 = 任意收件人
+  target: string;
+  keepOriginal: boolean;
   enabled: boolean;
 }
 

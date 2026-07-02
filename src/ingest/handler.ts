@@ -11,18 +11,36 @@ export async function handleEmail(
   const envelopeFrom = message.from;
   const envelopeTo = message.to;
   const size = message.rawSize;
+  // 邮件头 From/To 供转发规则匹配：message.headers 已就绪，不消费 raw 流、不做完整 MIME 解析
+  const headerFrom = message.headers.get("from") ?? undefined;
+  const headerTo = message.headers.get("to") ?? undefined;
 
-  // 1. precheck：毫秒级 RPC 查 rules
-  const v = await stub.precheck({ envelopeFrom, to: envelopeTo, size });
+  // 1. precheck：毫秒级 RPC 查 rules（拒收）+ 转发规则（邮件头匹配）
+  const v = await stub.precheck({
+    envelopeFrom,
+    to: envelopeTo,
+    size,
+    headerFrom,
+    headerTo,
+  });
   if (v.reject) {
     message.setReject(v.reason ?? "Rejected");
     return;
   }
 
-  // 2. 读流（只能读一次）
+  // 2. 转发：在读取 raw 流之前调用 message.forward（forward 不消费用户侧 raw 流）。
+  //    环路保护：本系统转发出去的信带 X-Forwarded-By，若又流回则不再转发、强制存档。
+  const alreadyForwarded = message.headers.has("x-forwarded-by");
+  if (!alreadyForwarded && v.forwards?.length) {
+    const forwardOk = await forwardAll(message, v.forwards);
+    // 转发后不存档：仅当全部转发成功才丢弃；任一失败回退存档保底（不丢信）
+    if (v.keepOriginal === false && forwardOk) return;
+  }
+
+  // 3. 读流（只能读一次）
   const raw = new Uint8Array(await streamToArrayBuffer(message.raw, size));
 
-  // 3. 返回 250 前同步落 R2 保底（投递责任转移点）
+  // 4. 返回 250 前同步落 R2 保底（投递责任转移点）
   const now = new Date();
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -30,8 +48,30 @@ export async function handleEmail(
   const r2Key = `raw/${yyyy}/${mm}/${mailKey}.eml`;
   await env.MAIL_R2.put(r2Key, raw);
 
-  // 4. 异步解析入库（即使失败，raw 已在 R2，可事后补索引）
+  // 5. 异步解析入库（即使失败，raw 已在 R2，可事后补索引）
   ctx.waitUntil(stub.ingest({ r2Key, envelopeFrom, envelopeTo, size }));
+}
+
+// 转发到全部目标（可多次调用 forward 投递到多个地址）；全部成功返回 true，
+// 任一失败返回 false（失败仅记日志、不抛出，避免影响收信落库）。
+async function forwardAll(
+  message: ForwardableEmailMessage,
+  targets: string[],
+): Promise<boolean> {
+  const headers = new Headers({ "X-Forwarded-By": "mail-relay" });
+  let ok = true;
+  for (const target of targets) {
+    try {
+      await message.forward(target, headers);
+    } catch (e) {
+      ok = false;
+      console.error(
+        `forward to ${target} failed:`,
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+  return ok;
 }
 
 async function streamToArrayBuffer(
