@@ -110,6 +110,7 @@ function renderShell(activeKey, contentNode) {
       {
         class: "nav-item",
         onclick: async () => {
+          if (!confirm("确定要退出登录吗？")) return;
           await api("/api/logout", { method: "POST" });
           state.authed = false;
           renderLogin();

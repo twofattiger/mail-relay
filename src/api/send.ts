@@ -18,7 +18,10 @@ export async function handleSend(req: Request, env: Env): Promise<Response> {
   }
   // 基础收件人格式校验（Resend 退信率约束）
   for (const addr of body.to) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) {
+    // 兼容 "Name <email@domain.com>" 格式，提取尖括号内的真实邮箱进行校验
+    const match = addr.match(/<([^>]+)>/);
+    const rawEmail = match ? match[1].trim() : addr.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawEmail)) {
       return error(400, `收件人地址格式错误: ${addr}`);
     }
   }
