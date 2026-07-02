@@ -33,7 +33,13 @@ npx wrangler secret put SESSION_SECRET
 npx wrangler secret put ADMIN_PASSWORD         # 后台登录密码（明文，填什么登录就用什么）
 ```
 
-随后在 Cloudflare Email Routing 把 Catch-all 指向本 Worker，并在后台「发送通道」录入 Resend API key → 测试 → 激活。
+随后在 Cloudflare Email Routing 中配置路由规则：**必须**将 **Catch-all address (捕获所有地址)** 指向本 Worker（推荐，可接收任意前缀）；或者在 **Custom addresses (自定义地址)** 中为你需要的特定前缀单独配置指向本 Worker。未配置路由规则，邮件将在 Cloudflare 边缘被直接退回（`550 5.1.1 Address does not exist`）。
+
+最后，在后台「发送通道」录入 Resend API key → 测试 → 激活。
+
+> ⚠️ **重要提示：SPF 配置（避免退信）**
+> 如果你使用 Resend 发信，强烈建议使用**子域名**（如 `send.yourdomain.com`）来配置 Resend 的 DNS 记录，而主域名（`yourdomain.com`）保留给 Cloudflare Email Routing 收信。
+> **如果必须在同一个主域名上同时收发**：Cloudflare 的 SPF 和 Resend 的 SPF **严禁**添加为两条独立的 TXT 记录（会导致全部进垃圾箱），必须合并为一条，例如：`v=spf1 include:_spf.mx.cloudflare.net include:amazonses.com ~all`。
 
 ## 本地开发与测试
 
