@@ -1,6 +1,6 @@
 import type { Env } from "../shared/types";
 import { error, json } from "../shared/http";
-import { makeToken, verifyToken } from "../shared/sign";
+import { makeToken, verifyToken, timingSafeEqual } from "../shared/sign";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 天
 const COOKIE_NAME = "mr_session";
@@ -16,14 +16,6 @@ function clientIp(req: Request): string {
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
     "unknown"
   );
-}
-
-async function sha256Hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  const bytes = new Uint8Array(buf);
-  let hex = "";
-  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
-  return hex;
 }
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
@@ -43,8 +35,8 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   }
   if (!body.password) return error(400, "缺少 password");
 
-  const hash = await sha256Hex(body.password);
-  const ok = hash === env.ADMIN_PASSWORD_HASH;
+  // 直接比对明文管理员密码（恒定时间比较，防时序侧信道）
+  const ok = timingSafeEqual(body.password, env.ADMIN_PASSWORD ?? "");
   await stub.recordLoginResult(ip, ok);
   if (!ok) return error(401, "口令错误");
 

@@ -9,7 +9,7 @@ declare namespace Cloudflare {
     ASSETS?: Fetcher;
     CONFIG_MASTER_KEY: string;
     SESSION_SECRET: string;
-    ADMIN_PASSWORD_HASH: string;
+    ADMIN_PASSWORD: string;
     DAILY_SEND_LIMIT?: string;
     BODY_INLINE_MAX?: string;
     LOGIN_MAX_FAILS?: string;

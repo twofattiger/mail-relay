@@ -6,7 +6,7 @@ export interface Env {
   // secrets
   CONFIG_MASTER_KEY: string;
   SESSION_SECRET: string;
-  ADMIN_PASSWORD_HASH: string;
+  ADMIN_PASSWORD: string;
   // vars
   DAILY_SEND_LIMIT?: string;
   BODY_INLINE_MAX?: string;

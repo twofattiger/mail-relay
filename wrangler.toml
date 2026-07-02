@@ -25,7 +25,7 @@ new_sqlite_classes = ["MailboxDO"]
 # Secrets（不写在此处，通过 wrangler secret put 注入）：
 #   CONFIG_MASTER_KEY   —— AES-GCM 加密 Provider 配置的主密钥
 #   SESSION_SECRET      —— HMAC session cookie 签名
-#   ADMIN_PASSWORD_HASH —— 登录口令的 SHA-256 哈希（hex）
+#   ADMIN_PASSWORD      —— 后台登录密码（明文，填什么登录就用什么）
 
 [vars]
 # 每日发送配额上限（Resend 免费档 100/天）

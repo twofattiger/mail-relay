@@ -1,56 +1,48 @@
 # mail-relay
 
-个人域名邮箱系统：单个 Cloudflare Worker（代码模块化）自建收信存储与后台，发送层抽象为可插拔 Provider（当前实现 Resend）。数据自持于 Durable Object SQLite + R2，无需 D1。
+用自己的域名收发邮件、数据完全自持的个人邮箱系统。单个 Cloudflare Worker 承载收信存储与后台，发送层抽象为可插拔 Provider（当前实现 Resend）。数据落在 Durable Object SQLite + R2，无需 D1、无需自建服务器。
 
-设计详见 [mail-relay-方案文档-v3.md](./mail-relay-方案文档-v3.md)。
+## 功能
 
-## 架构一览
+- **收信**：Cloudflare Email Routing（MX）把发往 `任意前缀@你的域名` 的邮件转给 Worker，原始 .eml 落 R2 保底，再由 Durable Object 解析入库、线程归并、按规则自动归档。
+- **后台**：浏览器登录后查看邮件列表 / 详情 / 会话视图，下载附件与原始 .eml；邮件正文用 sandboxed iframe + CSP 安全渲染，外链图片默认不加载（防追踪像素与 XSS）。
+- **发信**：后台撰写或回复，Durable Object 编排通过激活的 Provider 发出；outbox 状态机记录 发送中 / 已送出 / 失败，失败按指数退避自动重试。
+- **可插拔发送层**：Provider 是接口，Resend 只是第一个实现；后台可新增、测试、切换通道，零前端改动。
+- **自持**：发出的内容 100% 存自己库里；切换服务商不影响历史追溯。
 
-- **ingest**（email handler）：SMTP 会话内 precheck + raw 落 R2 保底 + 通知 DO，不解析 MIME、不写库。
-- **api**（fetch handler）：鉴权、HTTP 适配、静态资源；业务全部 RPC 委托给 DO。
-- **core**（`MailboxDO`）：唯一数据所有者，负责解析入库、线程归并、发送编排、配额、outbox 重试（alarm）、Provider 加解密。
+## 技术要点
 
-代码结构见 `src/`（`ingest/`、`api/`、`do/`、`providers/`、`mime/`、`shared/`）与前端 `public/`。
+- 单 Worker、代码模块化（`src/` 下 ingest / api / do / providers / mime / shared 分层），Wrangler 原生打包，无额外构建配置。
+- 前端 `public/` 为原生 HTML/CSS/JS，无构建步骤。
+- Durable Object 单实例串行：幂等去重、每日发送配额、outbox 状态机全部免锁。
+- SQLite 只存索引与小正文；.eml、附件、超阈值 HTML 正文（>256KB）一律入 R2。
+- 所有列表接口强制分页（`page` 默认 1，`pageSize` 默认 20、硬上限 100）。
 
-## 本地开发
+## 快速部署概览
 
 ```bash
 npm install
-cp .dev.vars .dev.vars.local   # 按需修改；.dev.vars 已含可用于本地的默认值
-npm run dev                     # wrangler dev（本地 miniflare，模拟 DO/R2）
+npx wrangler login
+npx wrangler r2 bucket create mail-relay      # 创建 R2 bucket
+npx wrangler deploy                            # 部署 Worker（含 DO 与静态资源）
+
+# 部署后再注入机密（顺序重要：先有 Worker 再灌 secret）
+# 每个 secret put 都会立即用"当前代码 + 新 secret"重新发布一次，无需再手动 deploy
+npx wrangler secret put CONFIG_MASTER_KEY
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put ADMIN_PASSWORD         # 后台登录密码（明文，填什么登录就用什么）
 ```
 
-- 默认口令为 `test-password`（对应 `.dev.vars` 里的 `ADMIN_PASSWORD_HASH`）。
-- 生成自定义口令哈希：`printf '你的口令' | shasum -a 256`。
+随后在 Cloudflare Email Routing 把 Catch-all 指向本 Worker，并在后台「发送通道」录入 Resend API key → 测试 → 激活。
 
-## 校验
+## 本地开发与测试
 
 ```bash
+npm run dev         # wrangler dev（本地 miniflare 模拟 DO/R2）
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（@cloudflare/vitest-pool-workers 本地集成测试）
+npm test            # vitest 集成测试
 ```
 
-测试覆盖：MIME 解析、收信入库/幂等去重/线程归并/正文外置/兜底、发信编排/配额/outbox 状态机/alarm 重试、Provider 加解密与错误分类、登录锁定、分页规范。外部 Resend 调用用 fetch mock 拦截。
+## 完整文档
 
-## 部署
-
-1. 注入三个 secret：
-   ```bash
-   wrangler secret put CONFIG_MASTER_KEY     # AES-GCM 加密 Provider 配置的主密钥
-   wrangler secret put SESSION_SECRET        # HMAC session cookie 签名
-   wrangler secret put ADMIN_PASSWORD_HASH   # 登录口令的 SHA-256(hex)
-   ```
-2. 创建 R2 bucket（名称与 `wrangler.toml` 一致）：`wrangler r2 bucket create mail-relay`
-3. `npm run deploy`（一次部署含 handler + DO + 静态资源）
-4. Cloudflare Email Routing：Catch-all → Send to a Worker → 选本 Worker
-5. 打开后台 → 发送通道 → 新增 Resend（填 API key）→ 测试连接 → 激活
-6. **SPF 合并（重要）**：一个域只允许一条 SPF TXT，需把 Email Routing 与 Resend 的 include 合并为一条，如
-   `v=spf1 include:_spf.mx.cloudflare.net include:amazonses.com ~all`（include 值以 Resend dashboard 为准）。
-
-> 注意：`compatibility_date` 当前设为 `2026-06-30` 以匹配本地 workerd 版本；升级 wrangler 后可同步调整。
-
-## 关键约束
-
-- DO SQLite 只存索引与小正文；.eml、附件、超阈值 HTML 正文（>256KB）一律入 R2。
-- 所有列表接口强制分页：`page`（默认 1）、`pageSize`（默认 20，硬上限 100）。
-- 邮件正文在前端用 sandboxed `<iframe>`（无 `allow-scripts`）+ CSP 渲染，外链图片默认不加载。
+注册 Resend、DNS/SPF 合并、逐步部署、部署后配置变量的顺序、接通收信、激活发信、验证清单与常见问题，全部在 **[src/readme.md](src/readme.md)**。设计原文见 [mail-relay-方案文档-v3.md](mail-relay-方案文档-v3.md)。

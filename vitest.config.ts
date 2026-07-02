@@ -11,9 +11,8 @@ export default defineConfig({
         bindings: {
           CONFIG_MASTER_KEY: "test-master-key-0123456789abcdef",
           SESSION_SECRET: "test-session-secret-abcdef0123456789",
-          // 密码 "test-password" 的 SHA-256 hex
-          ADMIN_PASSWORD_HASH:
-            "c638833f69bbfb3c267afa0a74434812436b8f08a81fd263c6be6871de4f1265",
+          // 明文管理员密码
+          ADMIN_PASSWORD: "test-password",
           DAILY_SEND_LIMIT: "100",
           BODY_INLINE_MAX: "262144",
           LOGIN_MAX_FAILS: "5",
