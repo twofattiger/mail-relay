@@ -7,7 +7,7 @@ import { ProviderError } from "../src/providers/types";
 describe("crypto AES-GCM", () => {
   it("加解密往返", async () => {
     const key = "master-key-123";
-    const secret = { apiKey: "re_abc123", fromName: "Yiyang" };
+    const secret = { apiKey: "re_abc123", fromName: "username" };
     const enc = await encryptJson(key, secret);
     expect(enc).not.toContain("re_abc123"); // 密文不含明文
     const dec = await decryptJson<typeof secret>(key, enc);

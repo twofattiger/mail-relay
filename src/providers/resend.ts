@@ -97,7 +97,7 @@ export const resendDef: ProviderDef = {
   displayName: "Resend",
   configSchema: [
     { key: "apiKey", label: "API Key", secret: true, required: true },
-    { key: "fromName", label: "发件人显示名", placeholder: "Yiyang" },
+    { key: "fromName", label: "发件人显示名", placeholder: "username" },
   ],
   create: (cfg) => new ResendProvider(cfg),
 };
