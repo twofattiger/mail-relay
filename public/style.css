@@ -414,6 +414,18 @@ button.mini {
   font-size: 12px;
 }
 
+/* ── 地址标签 ── */
+.addr-tag {
+  display: inline-block;
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  margin-right: 6px;
+}
+
 /* ── toast ── */
 #toast-host {
   position: fixed;
