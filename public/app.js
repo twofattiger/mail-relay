@@ -15,11 +15,13 @@ const state = {
 
 // ── fetch 封装 ──
 async function api(path, opts = {}) {
-  showLoading();
+  // silent：跳过全屏 loading（用于收件人联想等高频后台查询，避免界面反复闪烁）
+  const { silent = false, ...rest } = opts;
+  if (!silent) showLoading();
   try {
     const res = await fetch(path, {
-      headers: { "content-type": "application/json", ...(opts.headers || {}) },
-      ...opts,
+      headers: { "content-type": "application/json", ...(rest.headers || {}) },
+      ...rest,
     });
     if (res.status === 401) {
       state.authed = false;
@@ -30,7 +32,7 @@ async function api(path, opts = {}) {
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
   } finally {
-    hideLoading();
+    if (!silent) hideLoading();
   }
 }
 
@@ -655,7 +657,9 @@ async function renderCompose(replyMailId) {
     if (!text) return acClose();
     let data;
     try {
-      data = await api("/api/contacts?pageSize=8&q=" + encodeURIComponent(text));
+      data = await api("/api/contacts?pageSize=8&q=" + encodeURIComponent(text), {
+        silent: true,
+      });
     } catch {
       return acClose();
     }
