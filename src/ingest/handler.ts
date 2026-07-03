@@ -46,24 +46,25 @@ export async function handleEmail(
     if (v.keepOriginal === false && forwardOk) return;
   }
 
-  // 3. 读流（只能读一次）
-  // 按照“接收带附件邮件时传输中断”问题解决方案，注释掉在内存中组装全量数组的逻辑
-  // const raw = new Uint8Array(await streamToArrayBuffer(message.raw, size));
-
-  // 4. 返回 250 前同步落 R2 保底（投递责任转移点）
+  // 3~4. 返回 250 前，把 raw 流式落 R2 保底（投递责任转移点）。
   const now = new Date();
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   const mailKey = crypto.randomUUID();
   const r2Key = `raw/${yyyy}/${mm}/${mailKey}.eml`;
-  // 直接将流传递给 R2 避免内存溢出与 CPU 超限
-  // 坑点：由于 R2 put 操作耗时，直接 await 可能会导致 Email Worker 执行超时而被系统强杀，
-  // 从而无法给 SMTP 会话返回 250 OK。
-  // 解决办法：将 R2 的写入放入 ctx.waitUntil 中异步执行，
-  // 让 Email Worker 函数立刻结束并向发送方返回成功响应。
-  ctx.waitUntil(env.MAIL_R2.put(r2Key, message.raw));
 
-  // 5. 异步解析入库（即使失败，raw 已在 R2，可事后补索引）
+  // 直接把 message.raw（ReadableStream）交给 R2：R2 流式写入，不在内存里组装整封邮件，
+  // CPU 占用极低（纯 I/O 等待，不计入 10ms CPU 预算），10MB+ 附件也不会内存/CPU 超限。
+  //
+  // 关键：这里必须 await，不能放进 ctx.waitUntil：
+  //  - message.raw 是与 handler 生命周期绑定的流，放进 waitUntil 会让它跨越 handler 返回边界，
+  //    造成写入不完整/损坏，发送方也收不到干净的 250 而无限重投（QQ 一直重试的根因）。
+  //  - R2 put 本质是 I/O 等待，await 它不吃 CPU 预算，不会“执行超时被强杀”。
+  await env.MAIL_R2.put(r2Key, message.raw);
+
+  // 5. raw 已完整落盘后，再异步解析入库：
+  //    因上面已 await，ingest 从 R2 读 raw 时保证读到完整对象，不会再误判“解析失败”；
+  //    解析/入库失败也不影响已返回的 250，可事后据 raw 补索引。
   ctx.waitUntil(stub.ingest({ r2Key, envelopeFrom, envelopeTo, size }));
 }
 
