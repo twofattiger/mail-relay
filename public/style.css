@@ -1,0 +1,735 @@
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --border: #e2e5ea;
+  --text: #1f2733;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --unread: #eef4ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 14px;
+}
+#app {
+  height: 100%;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: var(--text);
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button.primary:hover {
+  background: var(--accent-hover);
+}
+button.danger {
+  color: var(--danger);
+  border-color: #f0c4c4;
+}
+/* 危险确认主按钮（confirmDialog danger）：红底白字，而非蓝底红字 */
+button.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+button.primary.danger:hover {
+  background: #b91c1c;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  width: 100%;
+}
+a {
+  color: var(--accent);
+}
+
+/* ── 登录 ── */
+.login-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  width: 320px;
+}
+.login-card h1 {
+  margin: 0 0 20px;
+  font-size: 20px;
+}
+.field {
+  margin-bottom: 14px;
+}
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.msg-error {
+  color: var(--danger);
+  margin: 8px 0;
+  min-height: 18px;
+}
+
+/* ── 主布局 ── */
+.layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  height: 100%;
+}
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar .brand {
+  font-weight: 700;
+  font-size: 16px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+.nav-item {
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 6px;
+  width: 100%;
+}
+.nav-item:hover {
+  background: var(--bg);
+}
+.nav-item.active {
+  background: var(--unread);
+  color: var(--accent);
+  font-weight: 600;
+}
+.sidebar .spacer {
+  flex: 1;
+}
+.sidebar .account {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar .account-warn {
+  color: var(--danger);
+  cursor: pointer;
+}
+.sidebar .account-warn:hover {
+  text-decoration: underline;
+}
+.main {
+  overflow: auto;
+  padding: 20px 24px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.toolbar h2 {
+  margin: 0;
+  font-size: 18px;
+  flex: 1;
+}
+.search {
+  max-width: 240px;
+}
+
+/* ── 列表 ── */
+.mail-list {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.mail-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  align-items: baseline;
+}
+.mail-row:last-child {
+  border-bottom: none;
+}
+.mail-row:hover {
+  background: var(--bg);
+}
+.mail-row.unread {
+  background: var(--unread);
+}
+.mail-row .from {
+  width: 180px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mail-row.unread .from::before {
+  content: "●";
+  color: var(--accent);
+  margin-right: 6px;
+  font-size: 10px;
+}
+.mail-row .to {
+  width: 160px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mail-row .subj {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mail-row .subj .snippet {
+  color: var(--muted);
+  margin-left: 8px;
+}
+.mail-row .meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.mail-row .clip {
+  margin-right: 4px;
+}
+.empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ── 分页 ── */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  margin: 16px 0;
+  color: var(--muted);
+}
+
+/* ── 详情 ── */
+.detail {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+.detail h2 {
+  margin: 0 0 4px;
+}
+.detail .hdr-row {
+  color: var(--muted);
+  margin: 2px 0;
+  font-size: 13px;
+}
+.detail .body-frame {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 16px;
+  min-height: 300px;
+  background: #fff;
+}
+.detail .body-text {
+  white-space: pre-wrap;
+  margin-top: 16px;
+  line-height: 1.6;
+}
+.att-list {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.att-chip {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.banner {
+  background: #fff8e1;
+  border: 1px solid #f5e0a3;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.banner button {
+  margin-left: 8px;
+  padding: 2px 8px;
+}
+
+/* ── 表格 ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+th,
+td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+tr:last-child td {
+  border-bottom: none;
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.badge.active {
+  background: #dcfce7;
+  color: var(--ok);
+}
+.badge.sent {
+  background: #dcfce7;
+  color: var(--ok);
+}
+.badge.queued {
+  background: #fef3c7;
+  color: #b45309;
+}
+.badge.failed {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+/* ── 弹层 ── */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 20px;
+  z-index: 50;
+}
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  width: 560px;
+  max-width: 100%;
+  padding: 24px;
+  max-height: 80vh;
+  overflow: auto;
+}
+.modal h3 {
+  margin: 0 0 16px;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+.row-actions {
+  display: flex;
+  gap: 6px;
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* 字节输入框的快捷标签 */
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.preset-chip {
+  padding: 2px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.preset-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── 列表行内小按钮与发送状态 ── */
+.mail-row .meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+button.mini {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* ── 地址标签 ── */
+.addr-tag {
+  display: inline-block;
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  margin-right: 6px;
+  font-weight: bold;
+}
+
+/* ── toast ── */
+#toast-host {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+.toast {
+  background: #1f2733;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+  cursor: pointer;
+  max-width: 320px;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast-ok {
+  background: #16a34a;
+}
+.toast-error {
+  background: var(--danger);
+}
+.toast-info {
+  background: #334155;
+}
+
+/* ── 对话框（confirm / alert / prompt）── */
+.dialog {
+  background: var(--panel);
+  border-radius: 12px;
+  width: 400px;
+  max-width: 100%;
+  padding: 22px 24px;
+}
+.dialog h3 {
+  margin: 0 0 12px;
+}
+.dialog-msg {
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+.dialog input {
+  margin-top: 8px;
+}
+
+/* ── 富文本编辑器 ── */
+.rte {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rte-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.rte-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 5px;
+}
+.rte-body {
+  min-height: 220px;
+  padding: 12px 14px;
+  outline: none;
+  line-height: 1.6;
+  background: #fff;
+}
+.rte-body:focus {
+  background: #fff;
+}
+.rte-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: 8px 0;
+  padding-left: 12px;
+  color: var(--muted);
+}
+.rte-body .quote-hdr {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0 4px;
+}
+
+/* ── 撰写页附件 chip 删除 ── */
+.compose .att-list {
+  margin-top: 8px;
+}
+.chip-x {
+  margin-left: 8px;
+  color: var(--danger);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+/* ── 收件人通讯录联想下拉 ── */
+.autocomplete {
+  position: relative;
+}
+.contact-dropdown {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.contact-dropdown.open {
+  display: block;
+}
+.ac-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ac-item:hover {
+  background: var(--bg);
+}
+.ac-name {
+  font-weight: 600;
+}
+.ac-email {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── 表格横向滚动容器（移动端防撑破）── */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* ── 顶部条 + 抽屉遮罩：桌面端隐藏 ── */
+.topbar,
+.sidebar-mask {
+  display: none;
+}
+
+/* ── 全局 Loading ── */
+#global-loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.5);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+#global-loading.show {
+  visibility: visible;
+  opacity: 1;
+}
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── 移动端 ── */
+@media (max-width: 768px) {
+  .layout {
+    display: block;
+    height: auto;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .topbar .brand {
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .hamburger {
+    border: none;
+    background: none;
+    font-size: 20px;
+    padding: 4px 8px;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 220px;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-mask.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 35;
+  }
+  .main {
+    padding: 14px;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .toolbar h2 {
+    flex-basis: 100%;
+  }
+  .search {
+    max-width: none;
+    width: 100%;
+  }
+  .mail-row {
+    flex-wrap: wrap;
+  }
+  .mail-row .from {
+    width: auto;
+    flex: 1 1 100%;
+  }
+  .mail-row .to {
+    width: auto;
+    flex: 1 1 100%;
+  }
+  .mail-row .subj {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+  .mail-row .meta {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .modal,
+  .dialog {
+    width: 100%;
+  }
+  .modal-mask {
+    padding: 20px 12px;
+    align-items: center;
+  }
+  .detail {
+    padding: 16px;
+  }
+  .login-card {
+    width: 100%;
+  }
+}
