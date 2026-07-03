@@ -9,6 +9,7 @@ export const CONFIG_DEFAULTS = {
   login_lock_seconds: "900",
   daily_send_limit: "100",
   body_inline_max: "262144",
+  max_mail_size: "10485760", // 整封收信大小上限（字节），默认 10MB；超过在 precheck 直接拒收
 } as const;
 
 export type ConfigKey =

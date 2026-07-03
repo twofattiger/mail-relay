@@ -1376,6 +1376,7 @@ async function renderSettings() {
   // 常规设置
   const primaryDomain = el("input", { placeholder: "如 yourdomain.com", value: s.primaryDomain || "" });
   const dailySendLimit = el("input", { type: "number", value: s.dailySendLimit });
+  const maxMailSize = el("input", { type: "number", min: "1", max: "26214400", value: s.maxMailSize });
   const bodyInlineMax = el("input", { type: "number", min: "1", max: "1048576", value: s.bodyInlineMax });
   const loginMaxFails = el("input", { type: "number", value: s.loginMaxFails });
   const loginLockSeconds = el("input", { type: "number", value: s.loginLockSeconds });
@@ -1394,6 +1395,7 @@ async function renderSettings() {
         body: JSON.stringify({
           primaryDomain: domain,
           dailySendLimit: Number(dailySendLimit.value),
+          maxMailSize: Number(maxMailSize.value),
           bodyInlineMax: Number(bodyInlineMax.value),
           loginMaxFails: Number(loginMaxFails.value),
           loginLockSeconds: Number(loginLockSeconds.value),
@@ -1415,6 +1417,17 @@ async function renderSettings() {
       el("h3", {}, "常规"),
       el("div", { class: "field" }, el("label", {}, "主域名（写邮件默认发件人 admin@主域）"), primaryDomain),
       el("div", { class: "field" }, el("label", {}, "每日发送配额上限"), dailySendLimit),
+      el(
+        "div",
+        { class: "field" },
+        el("label", {}, "最大收信大小（字节）"),
+        maxMailSize,
+        el(
+          "div",
+          { class: "hint" },
+          "整封邮件大小上限，超过则在收信时直接拒收、不落库。含 base64 编码后的附件（约膨胀 33%），即原始附件约为此值的 75%。最大 26214400（25MB，CF 邮件路由硬上限），默认 10485760（10MB）。",
+        ),
+      ),
       el(
         "div",
         { class: "field" },

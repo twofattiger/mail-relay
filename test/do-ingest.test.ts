@@ -32,6 +32,25 @@ describe("MailboxDO.precheck", () => {
     expect(r.reject).toBe(false);
   });
 
+  it("超过最大收信大小时拒收", async () => {
+    const over = await stub().precheck({
+      envelopeFrom: "x@y.com",
+      to: "me@mydomain.com",
+      size: 10 * 1024 * 1024 + 1, // 超过默认 10MB
+    });
+    expect(over.reject).toBe(true);
+    expect(over.reason).toContain("too large");
+
+    // 调低上限后，更小的邮件也会被拒
+    await stub().updateSettings({ maxMailSize: 1024 });
+    const r = await stub().precheck({
+      envelopeFrom: "x@y.com",
+      to: "me@mydomain.com",
+      size: 2048,
+    });
+    expect(r.reject).toBe(true);
+  });
+
   it("命中 reject 规则时拒收", async () => {
     await stub().upsertRule({
       kind: "from",

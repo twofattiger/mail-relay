@@ -17,8 +17,14 @@ export interface DoCtx {
   env: Env;
 }
 
-// precheck：SMTP 会话内毫秒级决策。先查 rules 黑名单拒收，再算转发规则（邮件头匹配）。
+// precheck：SMTP 会话内毫秒级决策。先按大小上限拒收，再查 rules 黑名单，最后算转发规则。
 export function precheck(ctx: DoCtx, input: PrecheckInput): PrecheckResult {
+  // 整封大小超上限（默认 10MB，可在设置页调整）→ 直接拒收，不落库、不进后续处理。
+  const maxSize = getConfigInt(ctx, "max_mail_size");
+  if (input.size > maxSize) {
+    return { reject: true, reason: `Message too large (max ${maxSize} bytes)` };
+  }
+
   const rules = loadEnabledRules(ctx);
   for (const r of rules) {
     if (r.action !== "reject") continue;

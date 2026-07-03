@@ -484,6 +484,7 @@ export class MailboxDO extends DurableObject<Env> {
       loginLockSeconds: getConfigInt(c, "login_lock_seconds"),
       dailySendLimit: getConfigInt(c, "daily_send_limit"),
       bodyInlineMax: getConfigInt(c, "body_inline_max"),
+      maxMailSize: getConfigInt(c, "max_mail_size"),
     };
   }
 
@@ -503,6 +504,9 @@ export class MailboxDO extends DurableObject<Env> {
     }
     if (input.bodyInlineMax !== undefined) {
       setConfig(c, "body_inline_max", String(input.bodyInlineMax));
+    }
+    if (input.maxMailSize !== undefined) {
+      setConfig(c, "max_mail_size", String(input.maxMailSize));
     }
   }
 

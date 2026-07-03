@@ -248,6 +248,7 @@ export interface SettingsDTO {
   loginLockSeconds: number;
   dailySendLimit: number;
   bodyInlineMax: number;
+  maxMailSize: number;
 }
 
 export interface UpdateSettingsInput {
@@ -256,4 +257,5 @@ export interface UpdateSettingsInput {
   loginLockSeconds?: number;
   dailySendLimit?: number;
   bodyInlineMax?: number;
+  maxMailSize?: number;
 }

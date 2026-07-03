@@ -12,14 +12,6 @@ export async function handleEmail(
   const envelopeTo = message.to;
   const size = message.rawSize;
 
-  // Cloudflare Email Routing 在将流传递给 worker 时就已经能获知 rawSize。
-  // 若包含大附件超出系统/平台限制（例如超过 25MB），可直接在此处阻断，不进入后续 RPC 和处理。
-  const MAX_SIZE = 25 * 1024 * 1024;
-  if (size > MAX_SIZE) {
-    message.setReject("Message too large (exceeds 25MB)");
-    return;
-  }
-
   // 邮件头 From/To 供转发规则匹配：message.headers 已就绪，不消费 raw 流、不做完整 MIME 解析
   const headerFrom = message.headers.get("from") ?? undefined;
   const headerTo = message.headers.get("to") ?? undefined;
@@ -53,14 +45,18 @@ export async function handleEmail(
   const mailKey = crypto.randomUUID();
   const r2Key = `raw/${yyyy}/${mm}/${mailKey}.eml`;
 
-  // 直接把 message.raw（ReadableStream）交给 R2：R2 流式写入，不在内存里组装整封邮件，
-  // CPU 占用极低（纯 I/O 等待，不计入 10ms CPU 预算），10MB+ 附件也不会内存/CPU 超限。
+  // 流式把 raw 写入 R2：不在内存里组装整封邮件，CPU 占用极低（纯 I/O 等待，不计入 10ms 预算），
+  // 10MB+ 附件也不会内存/CPU 超限。
   //
-  // 关键：这里必须 await，不能放进 ctx.waitUntil：
-  //  - message.raw 是与 handler 生命周期绑定的流，放进 waitUntil 会让它跨越 handler 返回边界，
-  //    造成写入不完整/损坏，发送方也收不到干净的 250 而无限重投（QQ 一直重试的根因）。
-  //  - R2 put 本质是 I/O 等待，await 它不吃 CPU 预算，不会“执行超时被强杀”。
-  await env.MAIL_R2.put(r2Key, message.raw);
+  // 关键坑点：R2.put 要求 ReadableStream 具有“已知长度”，而 email 的 message.raw 是未知长度的裸流，
+  // 直接 put(message.raw) 会抛异常 —— CF 邮件路由端就表现为
+  // “upstream worker temporary error: worker script threw an exception”，并让发送方无限重投。
+  // 解决：用 FixedLengthStream(size) 包一层（size 来自 message.rawSize），即满足“已知长度”。
+  const fixed = new FixedLengthStream(size);
+  // 后台把 raw 泵入定长流；勿 await —— 需与下面的 put 并发流动，否则背压互相等待。
+  message.raw.pipeTo(fixed.writable).catch(() => {});
+  // 必须 await：确保 raw 在返回 250 前完整落盘，且流在 handler 生命周期内被消费完。
+  await env.MAIL_R2.put(r2Key, fixed.readable);
 
   // 5. raw 已完整落盘后，再异步解析入库：
   //    因上面已 await，ingest 从 R2 读 raw 时保证读到完整对象，不会再误判“解析失败”；
