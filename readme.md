@@ -57,4 +57,4 @@ npm test            # vitest 集成测试
 
 ## 完整文档
 
-注册 Resend、DNS/SPF 合并、逐步部署、部署后配置变量的顺序、接通收信、激活发信、验证清单与常见问题，全部在 **[src/readme.md](src/readme.md)**。设计原文见 [mail-relay-方案文档-v3.md](mail-relay-方案文档-v3.md)。
+注册 Resend、DNS/SPF 合并、逐步部署、部署后配置变量的顺序、接通收信、激活发信、验证清单与常见问题，全部在 **[src/readme.md](src/readme.md)**。
