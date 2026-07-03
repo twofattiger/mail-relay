@@ -57,7 +57,11 @@ export async function handleEmail(
   const mailKey = crypto.randomUUID();
   const r2Key = `raw/${yyyy}/${mm}/${mailKey}.eml`;
   // 直接将流传递给 R2 避免内存溢出与 CPU 超限
-  await env.MAIL_R2.put(r2Key, message.raw);
+  // 坑点：由于 R2 put 操作耗时，直接 await 可能会导致 Email Worker 执行超时而被系统强杀，
+  // 从而无法给 SMTP 会话返回 250 OK。
+  // 解决办法：将 R2 的写入放入 ctx.waitUntil 中异步执行，
+  // 让 Email Worker 函数立刻结束并向发送方返回成功响应。
+  ctx.waitUntil(env.MAIL_R2.put(r2Key, message.raw));
 
   // 5. 异步解析入库（即使失败，raw 已在 R2，可事后补索引）
   ctx.waitUntil(stub.ingest({ r2Key, envelopeFrom, envelopeTo, size }));
