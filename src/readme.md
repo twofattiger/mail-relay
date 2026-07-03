@@ -1,5 +1,7 @@
 # mail-relay 开发与部署详解
 
+   ![邮箱管理界面](../images/mail-receive.jpg)
+
 个人域名邮箱系统：单个 Cloudflare Worker（代码模块化）自建收信存储与后台，发送层抽象为可插拔 Provider（当前实现 Resend）。数据自持于 Durable Object SQLite + R2，无需 D1。
 
 本文档面向"从零把它跑起来并上线"的完整流程。
