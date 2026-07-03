@@ -192,6 +192,10 @@ function renderShell(activeKey, contentNode) {
     );
   }
   sidebar.appendChild(el("div", { class: "spacer" }));
+
+  // 当前账号：已设主域显示 admin@主域，未设则提示去设置（保存主域后就地刷新）
+  sidebar.appendChild(accountLabel());
+
   sidebar.appendChild(
     el(
       "button",
@@ -209,6 +213,23 @@ function renderShell(activeKey, contentNode) {
   );
   app.innerHTML = "";
   app.appendChild(el("div", { class: "layout" }, sidebar, el("div", { class: "main" }, contentNode)));
+}
+
+// 侧边栏账号标签：已设主域显示 admin@主域，未设则可点击跳设置页
+function accountLabel() {
+  return state.primaryDomain
+    ? el("div", { class: "account" }, "admin@" + state.primaryDomain)
+    : el(
+        "div",
+        { class: "account account-warn", onclick: () => (location.hash = "#/settings") },
+        "请设置主域",
+      );
+}
+
+// 就地刷新侧边栏账号标签（保存主域后调用，无需整页重渲染）
+function refreshAccountLabel() {
+  const cur = document.querySelector(".sidebar .account");
+  if (cur) cur.replaceWith(accountLabel());
 }
 
 // ── 邮件列表 ──
@@ -1074,26 +1095,31 @@ async function renderSettings() {
   // 常规设置
   const primaryDomain = el("input", { placeholder: "如 yourdomain.com", value: s.primaryDomain || "" });
   const dailySendLimit = el("input", { type: "number", value: s.dailySendLimit });
-  const bodyInlineMax = el("input", { type: "number", value: s.bodyInlineMax });
+  const bodyInlineMax = el("input", { type: "number", min: "1", max: "1048576", value: s.bodyInlineMax });
   const loginMaxFails = el("input", { type: "number", value: s.loginMaxFails });
   const loginLockSeconds = el("input", { type: "number", value: s.loginLockSeconds });
   const gErr = el("div", { class: "msg-error" });
   const saveGeneral = el("button", { class: "primary" }, "保存设置");
   saveGeneral.onclick = async () => {
     gErr.textContent = "";
+    const domain = primaryDomain.value.trim().toLowerCase();
+    if (domain && !/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(domain)) {
+      return (gErr.textContent = "主域名格式不正确，例如 yourdomain.com");
+    }
     saveGeneral.disabled = true;
     try {
       await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify({
-          primaryDomain: primaryDomain.value.trim(),
+          primaryDomain: domain,
           dailySendLimit: Number(dailySendLimit.value),
           bodyInlineMax: Number(bodyInlineMax.value),
           loginMaxFails: Number(loginMaxFails.value),
           loginLockSeconds: Number(loginLockSeconds.value),
         }),
       });
-      state.primaryDomain = primaryDomain.value.trim();
+      state.primaryDomain = domain;
+      refreshAccountLabel();
       toast("设置已保存", "ok");
     } catch (e) {
       gErr.textContent = e.message;
@@ -1108,7 +1134,17 @@ async function renderSettings() {
       el("h3", {}, "常规"),
       el("div", { class: "field" }, el("label", {}, "主域名（写邮件默认发件人 admin@主域）"), primaryDomain),
       el("div", { class: "field" }, el("label", {}, "每日发送配额上限"), dailySendLimit),
-      el("div", { class: "field" }, el("label", {}, "正文外置 R2 阈值（字节）"), bodyInlineMax),
+      el(
+        "div",
+        { class: "field" },
+        el("label", {}, "正文外置 R2 阈值（字节）"),
+        bodyInlineMax,
+        el(
+          "div",
+          { class: "hint" },
+          "HTML 正文超过此大小则外置到 R2 存储。最大 1048576（1MB，受 Durable Object SQLite 单行上限约束），默认 262144（256KB）。",
+        ),
+      ),
       el("div", { class: "field" }, el("label", {}, "登录失败锁定阈值（次）"), loginMaxFails),
       el("div", { class: "field" }, el("label", {}, "登录锁定时长（秒）"), loginLockSeconds),
       gErr,

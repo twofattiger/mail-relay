@@ -140,6 +140,23 @@ a {
 .sidebar .spacer {
   flex: 1;
 }
+.sidebar .account {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar .account-warn {
+  color: var(--danger);
+  cursor: pointer;
+}
+.sidebar .account-warn:hover {
+  text-decoration: underline;
+}
 .main {
   overflow: auto;
   padding: 20px 24px;
