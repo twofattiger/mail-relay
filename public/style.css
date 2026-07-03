@@ -367,3 +367,126 @@ tr:last-child td {
   font-size: 12px;
   margin-top: 4px;
 }
+
+/* ── 列表行内小按钮与发送状态 ── */
+.mail-row .meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+button.mini {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* ── toast ── */
+#toast-host {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+.toast {
+  background: #1f2733;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+  cursor: pointer;
+  max-width: 320px;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast-ok {
+  background: #16a34a;
+}
+.toast-error {
+  background: var(--danger);
+}
+.toast-info {
+  background: #334155;
+}
+
+/* ── 对话框（confirm / alert / prompt）── */
+.dialog {
+  background: var(--panel);
+  border-radius: 12px;
+  width: 400px;
+  max-width: 100%;
+  padding: 22px 24px;
+}
+.dialog h3 {
+  margin: 0 0 12px;
+}
+.dialog-msg {
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+.dialog input {
+  margin-top: 8px;
+}
+
+/* ── 富文本编辑器 ── */
+.rte {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rte-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.rte-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 5px;
+}
+.rte-body {
+  min-height: 220px;
+  padding: 12px 14px;
+  outline: none;
+  line-height: 1.6;
+  background: #fff;
+}
+.rte-body:focus {
+  background: #fff;
+}
+.rte-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: 8px 0;
+  padding-left: 12px;
+  color: var(--muted);
+}
+.rte-body .quote-hdr {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0 4px;
+}
+
+/* ── 撰写页附件 chip 删除 ── */
+.compose .att-list {
+  margin-top: 8px;
+}
+.chip-x {
+  margin-left: 8px;
+  color: var(--danger);
+  cursor: pointer;
+  font-weight: 700;
+}

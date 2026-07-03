@@ -1,16 +1,22 @@
 import type { Env } from "../shared/types";
 import { error, json } from "../shared/http";
 import { verifyR2Token } from "../shared/sign";
-import { handleLogin, handleLogout, isAuthed } from "./auth";
+import { handleLogin, handleLogout, handleSetup, isAuthed } from "./auth";
 import {
+  deleteMail,
   downloadAttachment,
   downloadRaw,
   getMail,
   getThread,
   listMails,
+  moveMail,
+  retryMail,
+  setRead,
   streamR2,
 } from "./mails";
 import { handleSend } from "./send";
+import { handleUpload } from "./upload";
+import { changePassword, getSettings, updateSettings } from "./settings";
 import {
   activateProvider,
   createProvider,
@@ -46,11 +52,16 @@ export async function handleFetch(
     return env.ASSETS ? env.ASSETS.fetch(req) : new Response("Not Found", { status: 404 });
   }
 
-  // 登录 / 登出无需已有 session
+  // 登录 / 登出 / 首次设置 无需已有 session
   if (path === "/api/login" && method === "POST") return handleLogin(req, env);
   if (path === "/api/logout" && method === "POST") return handleLogout();
+  if (path === "/api/setup" && method === "POST") return handleSetup(req, env);
   if (path === "/api/session" && method === "GET") {
-    return json({ authed: await isAuthed(req, env) });
+    const stub = env.MAILBOX.getByName("main");
+    const authed = await isAuthed(req, env);
+    const needsSetup = !(await stub.hasPassword());
+    const primaryDomain = authed ? await stub.getPrimaryDomain() : "";
+    return json({ authed, needsSetup, primaryDomain });
   }
 
   // 其余 /api/* 一律要求鉴权
@@ -74,6 +85,14 @@ async function route(
 
   // /api/mails ...
   if (path === "/api/mails" && method === "GET") return listMails(req, env);
+  if (seg[1] === "mails" && seg[2] && seg[3] === "read" && method === "POST")
+    return setRead(req, env, seg[2]);
+  if (seg[1] === "mails" && seg[2] && seg[3] === "move" && method === "POST")
+    return moveMail(req, env, seg[2]);
+  if (seg[1] === "mails" && seg[2] && seg[3] === "retry" && method === "POST")
+    return retryMail(req, env, seg[2]);
+  if (seg[1] === "mails" && seg[2] && !seg[3] && method === "DELETE")
+    return deleteMail(env, seg[2]);
   if (seg[1] === "mails" && seg[2] && method === "GET") return getMail(env, seg[2]);
   if (seg[1] === "threads" && seg[2] && method === "GET") return getThread(env, seg[2]);
   if (seg[1] === "att" && seg[2] && method === "GET")
@@ -81,6 +100,13 @@ async function route(
   if (seg[1] === "raw" && seg[2] && method === "GET") return downloadRaw(env, seg[2]);
 
   if (path === "/api/send" && method === "POST") return handleSend(req, env);
+  if (path === "/api/upload" && method === "POST") return handleUpload(req, env);
+
+  // /api/settings ...
+  if (path === "/api/settings" && method === "GET") return getSettings(env);
+  if (path === "/api/settings" && method === "PUT") return updateSettings(req, env);
+  if (path === "/api/settings/password" && method === "POST")
+    return changePassword(req, env);
 
   // /api/providers ...
   if (path === "/api/providers/schema" && method === "GET") return getSchemas(env);

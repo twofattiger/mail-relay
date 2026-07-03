@@ -3,15 +3,10 @@ export interface Env {
   MAILBOX: DurableObjectNamespace<import("../do/mailbox").MailboxDO>;
   MAIL_R2: R2Bucket;
   ASSETS?: Fetcher;
-  // secrets
+  // secrets（加密/签名根密钥，不入库）
   CONFIG_MASTER_KEY: string;
   SESSION_SECRET: string;
-  ADMIN_PASSWORD: string;
-  // vars
-  DAILY_SEND_LIMIT?: string;
-  BODY_INLINE_MAX?: string;
-  LOGIN_MAX_FAILS?: string;
-  LOGIN_LOCK_SECONDS?: string;
+  // 其余业务配置（密码、防爆破、配额、阈值、主域）已迁入 DO config 表
 }
 
 export type MailDirection = "in" | "out";
@@ -54,6 +49,9 @@ export interface MailListItem {
   folder: MailFolder;
   has_attachments: number;
   created_at: number;
+  // 出站邮件的发送状态（来自 outbox；入站为 null）
+  send_status?: OutboxStatus | null;
+  send_error?: string | null;
 }
 
 export interface Attachment {
@@ -145,6 +143,14 @@ export interface IngestResult {
   needsParse: boolean;
 }
 
+// 撰写页上传后暂存于 R2 pending 区的待发附件
+export interface PendingAttachment {
+  key: string; // R2 pending key
+  filename: string;
+  size: number;
+  mimeType: string | null;
+}
+
 export interface SendInput {
   to: string[];
   subject: string;
@@ -152,6 +158,7 @@ export interface SendInput {
   text?: string;
   replyToMailId?: string;
   attachmentIds?: string[];
+  pendingAttachments?: PendingAttachment[]; // 撰写页新上传的附件
   from: string; // 发件地址（多身份发信，同域任意前缀）
   origin?: string; // 请求来源 origin，用于生成大附件签名 URL
 }
@@ -216,4 +223,21 @@ export interface UpsertForwardRuleInput {
 export interface LoginCheckResult {
   locked: boolean;
   lockedUntil?: number;
+}
+
+// 设置页 DTO（不含密码）
+export interface SettingsDTO {
+  primaryDomain: string;
+  loginMaxFails: number;
+  loginLockSeconds: number;
+  dailySendLimit: number;
+  bodyInlineMax: number;
+}
+
+export interface UpdateSettingsInput {
+  primaryDomain?: string;
+  loginMaxFails?: number;
+  loginLockSeconds?: number;
+  dailySendLimit?: number;
+  bodyInlineMax?: number;
 }

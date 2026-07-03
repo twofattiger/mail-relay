@@ -23,13 +23,16 @@ import type {
   UpsertRuleInput,
   VerifyResult,
 } from "../shared/types";
+import type { SettingsDTO, UpdateSettingsInput } from "../shared/types";
 import { buildPage } from "../shared/http";
 import { ulid } from "../shared/ulid";
 import { getProviderDef, listProviderDefs } from "../providers/registry";
 import { encryptJson, decryptJson } from "./crypto";
 import { runMigrations } from "./schema";
+import { getConfig, setConfig, getConfigInt } from "./config";
+import { hashPassword, verifyPassword } from "../shared/password";
 import { precheck as doPrecheck, ingest as doIngest, type DoCtx } from "./ingest";
-import { send as doSend, runAlarm } from "./send";
+import { send as doSend, runAlarm, retryOutbox as doRetryOutbox } from "./send";
 
 const SECRET_MASK = "••••••••";
 
@@ -86,8 +89,10 @@ export class MailboxDO extends DurableObject<Env> {
       ...this.sql.exec(
         `SELECT m.id, m.direction, m.thread_id, m.from_addr, m.to_addr, m.subject,
                 m.snippet, m.is_read, m.folder, m.created_at,
-                (SELECT COUNT(*) FROM attachments a WHERE a.mail_id = m.id) AS has_attachments
-         FROM mails m WHERE ${where}
+                (SELECT COUNT(*) FROM attachments a WHERE a.mail_id = m.id) AS has_attachments,
+                o.status AS send_status, o.last_error AS send_error
+         FROM mails m LEFT JOIN outbox o ON o.mail_id = m.id
+         WHERE ${where}
          ORDER BY m.created_at DESC LIMIT ? OFFSET ?`,
         ...args,
         q.pageSize,
@@ -405,8 +410,8 @@ export class MailboxDO extends DurableObject<Env> {
       this.sql.exec(`DELETE FROM login_attempts WHERE ip = ?`, ip);
       return;
     }
-    const maxFails = parseInt(this.env.LOGIN_MAX_FAILS ?? "5", 10) || 5;
-    const lockSeconds = parseInt(this.env.LOGIN_LOCK_SECONDS ?? "900", 10) || 900;
+    const maxFails = getConfigInt(this.doCtx(), "login_max_fails");
+    const lockSeconds = getConfigInt(this.doCtx(), "login_lock_seconds");
     const rows = [
       ...this.sql.exec(`SELECT fail_count FROM login_attempts WHERE ip = ?`, ip),
     ] as Array<{ fail_count: number | null }>;
@@ -419,6 +424,123 @@ export class MailboxDO extends DurableObject<Env> {
       failCount,
       lockedUntil,
     );
+  }
+
+  // ─── 管理密码（哈希在 DO 内计算，明文不出 DO）───
+  hasPassword(): boolean {
+    return getConfig(this.doCtx(), "admin_password_hash") != null;
+  }
+
+  // 首次引导设置初始密码：仅当尚无密码时可用
+  async setupPassword(plain: string): Promise<{ ok: boolean; error?: string }> {
+    if (this.hasPassword()) return { ok: false, error: "已初始化，禁止重复设置" };
+    if (!plain || plain.length < 6) return { ok: false, error: "密码至少 6 位" };
+    setConfig(this.doCtx(), "admin_password_hash", await hashPassword(plain));
+    return { ok: true };
+  }
+
+  async verifyLoginPassword(plain: string): Promise<boolean> {
+    const stored = getConfig(this.doCtx(), "admin_password_hash");
+    if (!stored) return false;
+    return verifyPassword(plain, stored);
+  }
+
+  async changePassword(
+    oldPlain: string,
+    newPlain: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const stored = getConfig(this.doCtx(), "admin_password_hash");
+    if (!stored) return { ok: false, error: "尚未设置密码" };
+    if (!(await verifyPassword(oldPlain, stored))) {
+      return { ok: false, error: "原密码错误" };
+    }
+    if (!newPlain || newPlain.length < 6) return { ok: false, error: "新密码至少 6 位" };
+    setConfig(this.doCtx(), "admin_password_hash", await hashPassword(newPlain));
+    return { ok: true };
+  }
+
+  // ─── 设置（不含密码）───
+  getPrimaryDomain(): string {
+    return getConfig(this.doCtx(), "primary_domain") ?? "";
+  }
+
+  getSettings(): SettingsDTO {
+    const c = this.doCtx();
+    return {
+      primaryDomain: getConfig(c, "primary_domain") ?? "",
+      loginMaxFails: getConfigInt(c, "login_max_fails"),
+      loginLockSeconds: getConfigInt(c, "login_lock_seconds"),
+      dailySendLimit: getConfigInt(c, "daily_send_limit"),
+      bodyInlineMax: getConfigInt(c, "body_inline_max"),
+    };
+  }
+
+  updateSettings(input: UpdateSettingsInput): void {
+    const c = this.doCtx();
+    if (input.primaryDomain !== undefined) {
+      setConfig(c, "primary_domain", input.primaryDomain.trim());
+    }
+    if (input.loginMaxFails !== undefined) {
+      setConfig(c, "login_max_fails", String(input.loginMaxFails));
+    }
+    if (input.loginLockSeconds !== undefined) {
+      setConfig(c, "login_lock_seconds", String(input.loginLockSeconds));
+    }
+    if (input.dailySendLimit !== undefined) {
+      setConfig(c, "daily_send_limit", String(input.dailySendLimit));
+    }
+    if (input.bodyInlineMax !== undefined) {
+      setConfig(c, "body_inline_max", String(input.bodyInlineMax));
+    }
+  }
+
+  // ─── 邮件操作（已读 / 移动 / 删除）───
+  setRead(id: string, read: boolean): void {
+    this.sql.exec(`UPDATE mails SET is_read = ? WHERE id = ?`, read ? 1 : 0, id);
+  }
+
+  moveMail(id: string, folder: string): void {
+    this.sql.exec(`UPDATE mails SET folder = ? WHERE id = ?`, folder, id);
+  }
+
+  // 当前 folder：用于 api 层决定「删除」是移入废纸篓还是永久删除
+  getFolder(id: string): string | null {
+    const rows = [
+      ...this.sql.exec(`SELECT folder FROM mails WHERE id = ?`, id),
+    ] as Array<{ folder: string }>;
+    return rows.length ? rows[0].folder : null;
+  }
+
+  // 永久删除：清理 R2（附件 / 外置正文 / 原始 .eml）后删表行
+  async purgeMail(id: string): Promise<void> {
+    const mailRows = [
+      ...this.sql.exec(
+        `SELECT body_r2_key, raw_r2_key FROM mails WHERE id = ?`,
+        id,
+      ),
+    ] as Array<{ body_r2_key: string | null; raw_r2_key: string | null }>;
+    if (!mailRows.length) return;
+    const attRows = [
+      ...this.sql.exec(`SELECT r2_key FROM attachments WHERE mail_id = ?`, id),
+    ] as Array<{ r2_key: string }>;
+
+    const keys = [
+      mailRows[0].body_r2_key,
+      mailRows[0].raw_r2_key,
+      ...attRows.map((a) => a.r2_key),
+    ].filter((k): k is string => !!k);
+    for (const key of keys) {
+      await this.env.MAIL_R2.delete(key);
+    }
+
+    this.sql.exec(`DELETE FROM attachments WHERE mail_id = ?`, id);
+    this.sql.exec(`DELETE FROM outbox WHERE mail_id = ?`, id);
+    this.sql.exec(`DELETE FROM mails WHERE id = ?`, id);
+  }
+
+  // 失败/排队的出站邮件手动重试
+  async retrySend(mailId: string, origin?: string): Promise<SendResultDTO> {
+    return doRetryOutbox(this.doCtx(), mailId, origin);
   }
 }
 

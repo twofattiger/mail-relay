@@ -9,15 +9,12 @@ import type {
 } from "../shared/types";
 import { ulid } from "../shared/ulid";
 import { parseEml, extractRefIds, type ParsedMail } from "../mime/parse";
+import { getConfigInt } from "./config";
 
 export interface DoCtx {
   sql: SqlStorage;
   storage: DurableObjectStorage;
   env: Env;
-}
-
-function bodyInlineMax(env: Env): number {
-  return parseInt(env.BODY_INLINE_MAX ?? "262144", 10) || 262144;
 }
 
 // precheck：SMTP 会话内毫秒级决策。先查 rules 黑名单拒收，再算转发规则（邮件头匹配）。
@@ -132,7 +129,7 @@ export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResu
   // 正文外置：body_html 超阈值 → 写 R2，列置 NULL
   let bodyHtml: string | null = parsed.html;
   let bodyR2Key: string | null = null;
-  if (bodyHtml && byteLen(bodyHtml) > bodyInlineMax(env)) {
+  if (bodyHtml && byteLen(bodyHtml) > getConfigInt(ctx, "body_inline_max")) {
     bodyR2Key = `body/${mailId}.html`;
     await env.MAIL_R2.put(bodyR2Key, bodyHtml, {
       httpMetadata: { contentType: "text/html; charset=utf-8" },

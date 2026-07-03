@@ -1,19 +1,16 @@
-import type { Attachment, Env, SendInput, SendResultDTO } from "../shared/types";
+import type { Attachment, SendInput, SendResultDTO } from "../shared/types";
 import { ulid } from "../shared/ulid";
 import { makeR2Token } from "../shared/sign";
 import { getProviderDef } from "../providers/registry";
 import { ProviderError, type OutgoingAttachment } from "../providers/types";
 import { decryptJson } from "./crypto";
+import { getConfigInt } from "./config";
 import type { DoCtx } from "./ingest";
 
 const ATTACH_INLINE_MAX = 10 * 1024 * 1024; // ≤10MB 内联 base64，更大走签名 URL
 const R2_TOKEN_TTL = 15 * 60 * 1000; // 15 分钟
 const MAX_ATTEMPTS = 5;
 const RETRY_BASE_MS = 60 * 1000; // 指数退避基数
-
-function dailyLimit(env: Env): number {
-  return parseInt(env.DAILY_SEND_LIMIT ?? "100", 10) || 100;
-}
 
 function mailDomain(from: string): string {
   const m = from.match(/@([^>\s]+)/);
@@ -41,10 +38,10 @@ function bumpSendCount(ctx: DoCtx): void {
 }
 
 export async function send(ctx: DoCtx, input: SendInput): Promise<SendResultDTO> {
-  const { sql, env } = ctx;
+  const { sql } = ctx;
 
   // 1. 配额检查
-  if (getSendCount(ctx) >= dailyLimit(env)) {
+  if (getSendCount(ctx) >= getConfigInt(ctx, "daily_send_limit")) {
     throw new Error("已达每日发送配额上限");
   }
 
@@ -91,10 +88,7 @@ export async function send(ctx: DoCtx, input: SendInput): Promise<SendResultDTO>
     }
   }
 
-  // 4. 组装附件
-  const outAttachments = await buildAttachments(ctx, input);
-
-  // 5. 事务：写 mails(out) + outbox(queued)
+  // 4. 事务：写 mails(out) + outbox(queued)
   const outboxId = ulid(now);
   const toAddr = input.to.join(", ");
   sql.exec(
@@ -123,6 +117,10 @@ export async function send(ctx: DoCtx, input: SendInput): Promise<SendResultDTO>
     mailId,
     provider.id,
   );
+
+  // 5. 落库附件：pending 区转正式区 + 写 attachments 表（首发/重试统一从表重建）
+  await persistAttachments(ctx, mailId, input);
+  const outAttachments = await buildAttachmentsFromMail(ctx, mailId, input.origin);
 
   // 6+7. 解密配置 → 构造 provider → 发送
   const result = await attemptSend(ctx, outboxId, {
@@ -240,6 +238,7 @@ export async function runAlarm(ctx: DoCtx): Promise<void> {
     ),
   ] as Array<{
     outbox_id: string;
+    mail_id: string;
     from_addr: string;
     to_addr: string;
     subject: string | null;
@@ -257,6 +256,8 @@ export async function runAlarm(ctx: DoCtx): Promise<void> {
     if (d.message_id) headers["Message-ID"] = d.message_id;
     if (d.in_reply_to) headers["In-Reply-To"] = d.in_reply_to;
     if (d.refs) headers["References"] = d.refs;
+    // 重试无 origin：附件从 attachments 表重建、一律内联（不丢附件）
+    const attachments = await buildAttachmentsFromMail(ctx, d.mail_id);
     await attemptSend(ctx, d.outbox_id, {
       providerType: d.provider_type,
       configEnc: d.config_enc,
@@ -266,7 +267,7 @@ export async function runAlarm(ctx: DoCtx): Promise<void> {
       html: d.body_html ?? undefined,
       text: d.body_text ?? undefined,
       headers,
-      attachments: [], // 重试沿用正文；附件重试暂不重建（大附件已过签名 URL 时效）
+      attachments,
     });
   }
 
@@ -283,39 +284,133 @@ export async function runAlarm(ctx: DoCtx): Promise<void> {
   }
 }
 
-async function buildAttachments(
+// 手动重试：对 failed/queued 的出站邮件重新投递（沿用原 provider 与附件）。
+export async function retryOutbox(
   ctx: DoCtx,
+  mailId: string,
+  origin?: string,
+): Promise<SendResultDTO> {
+  const { sql } = ctx;
+  const rows = [
+    ...sql.exec(
+      `SELECT o.id AS outbox_id, o.status, o.mail_id,
+              m.from_addr, m.to_addr, m.subject, m.body_html, m.body_text,
+              m.message_id, m.in_reply_to, m.refs,
+              p.type AS provider_type, p.config_enc
+       FROM outbox o
+       JOIN mails m ON m.id = o.mail_id
+       JOIN providers p ON p.id = o.provider_id
+       WHERE o.mail_id = ?`,
+      mailId,
+    ),
+  ] as Array<{
+    outbox_id: string;
+    status: string;
+    mail_id: string;
+    from_addr: string;
+    to_addr: string;
+    subject: string | null;
+    body_html: string | null;
+    body_text: string | null;
+    message_id: string | null;
+    in_reply_to: string | null;
+    refs: string | null;
+    provider_type: string;
+    config_enc: string;
+  }>;
+  if (!rows.length) throw new Error("找不到可重试的发送记录");
+  const d = rows[0];
+  if (d.status === "sent") {
+    return { mailId, outboxId: d.outbox_id, status: "sent" };
+  }
+  if (getSendCount(ctx) >= getConfigInt(ctx, "daily_send_limit")) {
+    throw new Error("已达每日发送配额上限");
+  }
+
+  const headers: Record<string, string> = {};
+  if (d.message_id) headers["Message-ID"] = d.message_id;
+  if (d.in_reply_to) headers["In-Reply-To"] = d.in_reply_to;
+  if (d.refs) headers["References"] = d.refs;
+  const attachments = await buildAttachmentsFromMail(ctx, d.mail_id, origin);
+  const result = await attemptSend(ctx, d.outbox_id, {
+    providerType: d.provider_type,
+    configEnc: d.config_enc,
+    from: d.from_addr,
+    to: splitAddrs(d.to_addr),
+    subject: d.subject ?? "",
+    html: d.body_html ?? undefined,
+    text: d.body_text ?? undefined,
+    headers,
+    attachments,
+  });
+  return { mailId, outboxId: d.outbox_id, status: result.status, error: result.error };
+}
+
+// 落库附件：撰写页上传的 pending 附件从 R2 pending 区转正式区 + 写 attachments 表。
+async function persistAttachments(
+  ctx: DoCtx,
+  mailId: string,
   input: SendInput,
+): Promise<void> {
+  if (!input.pendingAttachments?.length) return;
+  for (const pa of input.pendingAttachments) {
+    const obj = await ctx.env.MAIL_R2.get(pa.key);
+    if (!obj) continue; // pending 已丢失则跳过（不阻断发送）
+    const attId = ulid();
+    const key = `att/${mailId}/${attId}/${sanitizeName(pa.filename)}`;
+    const bytes = new Uint8Array(await obj.arrayBuffer());
+    await ctx.env.MAIL_R2.put(key, bytes, {
+      httpMetadata: pa.mimeType ? { contentType: pa.mimeType } : undefined,
+    });
+    await ctx.env.MAIL_R2.delete(pa.key);
+    ctx.sql.exec(
+      `INSERT INTO attachments (id, mail_id, filename, mime_type, size_bytes, r2_key)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      attId,
+      mailId,
+      pa.filename,
+      pa.mimeType,
+      pa.size,
+      key,
+    );
+  }
+}
+
+// 从 attachments 表按 mail_id 重建发送附件：≤10MB 内联 base64；
+// 更大且有 origin 走短时效签名 URL；无 origin（重试）一律内联，保证不丢附件。
+async function buildAttachmentsFromMail(
+  ctx: DoCtx,
+  mailId: string,
+  origin?: string,
 ): Promise<OutgoingAttachment[]> {
-  if (!input.attachmentIds?.length) return [];
+  const rows = [
+    ...ctx.sql.exec(`SELECT * FROM attachments WHERE mail_id = ?`, mailId),
+  ] as unknown as Attachment[];
   const out: OutgoingAttachment[] = [];
-  for (const attId of input.attachmentIds) {
-    const rows = [
-      ...ctx.sql.exec(`SELECT * FROM attachments WHERE id = ?`, attId),
-    ] as unknown as Attachment[];
-    if (!rows.length) continue;
-    const att = rows[0];
+  for (const att of rows) {
     const size = att.size_bytes ?? 0;
-    if (size <= ATTACH_INLINE_MAX) {
-      const obj = await ctx.env.MAIL_R2.get(att.r2_key);
-      if (!obj) continue;
-      const content = toBase64(new Uint8Array(await obj.arrayBuffer()));
-      out.push({
-        filename: att.filename,
-        content,
-        contentType: att.mime_type ?? undefined,
-      });
-    } else if (input.origin) {
-      // 大附件：短时效签名 URL，provider 自行拉取
+    if (size > ATTACH_INLINE_MAX && origin) {
       const token = await makeR2Token(ctx.env.SESSION_SECRET, att.id, R2_TOKEN_TTL);
       out.push({
         filename: att.filename,
-        url: `${input.origin}/r2sign/${token}`,
+        url: `${origin}/r2sign/${token}`,
+        contentType: att.mime_type ?? undefined,
+      });
+    } else {
+      const obj = await ctx.env.MAIL_R2.get(att.r2_key);
+      if (!obj) continue;
+      out.push({
+        filename: att.filename,
+        content: toBase64(new Uint8Array(await obj.arrayBuffer())),
         contentType: att.mime_type ?? undefined,
       });
     }
   }
   return out;
+}
+
+function sanitizeName(name: string): string {
+  return name.replace(/[^\w.\-]+/g, "_").slice(0, 128) || "file";
 }
 
 function makeSnippetFrom(input: SendInput): string {

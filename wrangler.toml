@@ -25,13 +25,6 @@ new_sqlite_classes = ["MailboxDO"]
 # Secrets（不写在此处，通过 wrangler secret put 注入）：
 #   CONFIG_MASTER_KEY   —— AES-GCM 加密 Provider 配置的主密钥
 #   SESSION_SECRET      —— HMAC session cookie 签名
-#   ADMIN_PASSWORD      —— 后台登录密码（明文，填什么登录就用什么）
-
-[vars]
-# 每日发送配额上限（Resend 免费档 100/天）
-DAILY_SEND_LIMIT = "100"
-# 邮件正文外置 R2 的阈值（字节），超过则 body_html 落 R2
-BODY_INLINE_MAX = "262144"
-# 登录失败锁定阈值与时长（秒）
-LOGIN_MAX_FAILS = "5"
-LOGIN_LOCK_SECONDS = "900"
+#
+# 管理密码、主域、登录防爆破、发送/正文阈值等业务配置已迁入 DO config 表，
+# 首次访问后台时引导设置初始密码，其余项在「设置」页调整，无需环境变量。

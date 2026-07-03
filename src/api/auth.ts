@@ -1,6 +1,6 @@
 import type { Env } from "../shared/types";
 import { error, json } from "../shared/http";
-import { makeToken, verifyToken, timingSafeEqual } from "../shared/sign";
+import { makeToken, verifyToken } from "../shared/sign";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 天
 const COOKIE_NAME = "mr_session";
@@ -16,6 +16,22 @@ function clientIp(req: Request): string {
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
     "unknown"
   );
+}
+
+// 签发 session cookie（登录与首次设置密码后共用）
+async function sessionCookie(env: Env): Promise<string> {
+  const token = await makeToken(env.SESSION_SECRET, {
+    sub: "admin",
+    exp: Date.now() + SESSION_TTL_MS,
+  } satisfies SessionPayload);
+  return [
+    `${COOKIE_NAME}=${token}`,
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+    "Path=/",
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+  ].join("; ");
 }
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
@@ -35,26 +51,29 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   }
   if (!body.password) return error(400, "缺少 password");
 
-  // 直接比对明文管理员密码（恒定时间比较，防时序侧信道）
-  const ok = timingSafeEqual(body.password, env.ADMIN_PASSWORD ?? "");
+  // 校验存于 config 表的 PBKDF2 哈希（比对在 DO 内完成，明文不落库）
+  const ok = await stub.verifyLoginPassword(body.password);
   await stub.recordLoginResult(ip, ok);
   if (!ok) return error(401, "口令错误");
 
-  const token = await makeToken(env.SESSION_SECRET, {
-    sub: "admin",
-    exp: Date.now() + SESSION_TTL_MS,
-  } satisfies SessionPayload);
+  return json({ ok: true }, { headers: { "set-cookie": await sessionCookie(env) } });
+}
 
-  const cookie = [
-    `${COOKIE_NAME}=${token}`,
-    "HttpOnly",
-    "Secure",
-    "SameSite=Lax",
-    "Path=/",
-    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
-  ].join("; ");
+// 首次引导：仅当尚未设置密码时可用，设置初始密码并自动登录
+export async function handleSetup(req: Request, env: Env): Promise<Response> {
+  const stub = env.MAILBOX.getByName("main");
+  let body: { password?: string };
+  try {
+    body = (await req.json()) as { password?: string };
+  } catch {
+    return error(400, "请求体格式错误");
+  }
+  if (!body.password) return error(400, "缺少 password");
 
-  return json({ ok: true }, { headers: { "set-cookie": cookie } });
+  const res = await stub.setupPassword(body.password);
+  if (!res.ok) return error(400, res.error ?? "设置失败");
+
+  return json({ ok: true }, { headers: { "set-cookie": await sessionCookie(env) } });
 }
 
 export function handleLogout(): Response {

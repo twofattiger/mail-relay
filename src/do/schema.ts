@@ -94,6 +94,15 @@ const MIGRATIONS: string[] = [
     created_at    INTEGER
   );
   `,
+  // v3：统一配置表。业务配置（管理密码哈希、主域、登录防爆破、发送/正文阈值）集中于此，
+  // 取代原先散落的环境变量。加密/签名根密钥仍为 secret，不入库。
+  `
+  CREATE TABLE IF NOT EXISTS config (
+    config_name  TEXT PRIMARY KEY,
+    config_value TEXT,
+    updated_at   INTEGER
+  );
+  `,
 ];
 
 // 运行迁移：读取当前 schema_version，顺序执行未应用的增量。

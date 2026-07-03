@@ -35,7 +35,7 @@ export async function handleSend(req: Request, env: Env): Promise<Response> {
       html: body.html,
       text: body.text,
       replyToMailId: body.replyToMailId,
-      attachmentIds: body.attachmentIds,
+      pendingAttachments: body.pendingAttachments,
       origin,
     });
     return json(result);

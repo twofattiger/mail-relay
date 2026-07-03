@@ -1,9 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { SELF } from "cloudflare:test";
 
-// vitest.config.ts 注入的密码为 "test-password"
+// 管理密码已迁入 config 表：每个隔离用例先经首次引导 /api/setup 设定
 const GOOD = "test-password";
 const BAD = "wrong-password";
+
+async function setup(password: string) {
+  return SELF.fetch("https://mr.test/api/setup", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+}
 
 async function login(password: string) {
   return SELF.fetch("https://mr.test/api/login", {
@@ -14,6 +22,11 @@ async function login(password: string) {
 }
 
 describe("鉴权", () => {
+  // isolatedStorage：每个用例存储独立，首次引导需逐例执行
+  beforeEach(async () => {
+    await setup(GOOD);
+  });
+
   it("正确口令签发 session cookie", async () => {
     const res = await login(GOOD);
     expect(res.status).toBe(200);
@@ -45,7 +58,7 @@ describe("鉴权", () => {
   });
 
   it("连续失败达阈值后锁定（429）", async () => {
-    // LOGIN_MAX_FAILS=5：连续 5 次失败后锁定
+    // config 默认 login_max_fails=5：连续 5 次失败后锁定
     for (let i = 0; i < 5; i++) {
       await login(BAD);
     }
