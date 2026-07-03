@@ -60,6 +60,9 @@ npx wrangler secret put SESSION_SECRET
 
 随后在 Cloudflare Email Routing 中配置路由规则：**必须**将 **Catch-all address (捕获所有地址)** 指向本 Worker（推荐，可接收任意前缀）；或者在 **Custom addresses (自定义地址)** 中为你需要的特定前缀单独配置指向本 Worker。未配置路由规则，邮件将在 Cloudflare 边缘被直接退回（`550 5.1.1 Address does not exist`）。
 
+> 🌐 **国内访问：给 Worker 绑定自定义域名**
+> Worker 默认的 `*.workers.dev` 域名在中国大陆常被阻断、打不开后台。国内使用请先绑一个自定义域名：**Cloudflare 控制台 → Workers & Pages → 选中 mail-relay → Settings → Domains & Routes → Add → Custom Domain**，填一个托管在 Cloudflare 的子域（建议用子域，如 `mail.yourdomain.com`），几分钟自动签发证书生效，之后用它访问后台。该自定义域只负责访问后台，与收信 MX、发信子域互不冲突。详见 [src/readme.md](src/readme.md) 第 10 节。
+
 首次打开后台会引导你**设置管理密码**（PBKDF2 哈希存入 config 表，不落明文）。随后进入「设置」页填入**主域名**（写邮件默认发件人 `admin@主域`）。如果你需要发信功能，还需要在「发送通道」录入 Resend API key → 测试 → 激活（**仅收信则无需配置**）。
 
 若要用「转发规则」把来信自动转发到常用邮箱，转发目标必须先在 Cloudflare 里验证为 Destination address：**Cloudflare 控制台 → 选中域名 → Email（电子邮件）→ Email Routing（电子邮件路由）→ Destination addresses（目标地址）→ Add destination address → 填入目标邮箱 → 打开该邮箱点验证链接 → 状态变 Verified**。未验证的地址无法作为转发目标（转发会失败，此时按回退逻辑仍会存档）。详见 [src/readme.md](src/readme.md) 的「配置转发规则」。
