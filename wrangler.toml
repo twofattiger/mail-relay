@@ -13,6 +13,8 @@ run_worker_first = ["/api/*", "/r2sign/*"]
 [[r2_buckets]]
 binding = "MAIL_R2"
 bucket_name = "mail-relay"
+# 部署前需先创建 R2 存储桶，执行命令：
+# npx wrangler r2 bucket create mail-relay
 
 [[durable_objects.bindings]]
 name = "MAILBOX"
