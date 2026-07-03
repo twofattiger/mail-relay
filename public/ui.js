@@ -1,6 +1,29 @@
 // 轻量 UI 组件：toast 浮层 + confirm/alert 对话框，替代浏览器原生 alert/confirm。
 // 纯原生实现，无依赖。样式见 style.css 的 .toast / .dialog 系列。
 
+// ── 全局 Loading ──
+let loadingCount = 0;
+let loadingEl = null;
+
+export function showLoading() {
+  loadingCount++;
+  if (!loadingEl) {
+    loadingEl = document.createElement("div");
+    loadingEl.id = "global-loading";
+    loadingEl.innerHTML = '<div class="spinner"></div>';
+    document.body.appendChild(loadingEl);
+  }
+  loadingEl.classList.add("show");
+}
+
+export function hideLoading() {
+  loadingCount--;
+  if (loadingCount <= 0) {
+    loadingCount = 0;
+    if (loadingEl) loadingEl.classList.remove("show");
+  }
+}
+
 // ── toast：右下角浮层，自动消失 ──
 export function toast(message, type = "info") {
   let host = document.getElementById("toast-host");

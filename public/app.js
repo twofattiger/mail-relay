@@ -1,5 +1,5 @@
 import { renderMailBody } from "/mail-frame.js";
-import { toast, confirmDialog, alertDialog, promptDialog } from "/ui.js";
+import { toast, confirmDialog, alertDialog, promptDialog, showLoading, hideLoading } from "/ui.js";
 
 const app = document.getElementById("app");
 const state = {
@@ -15,28 +15,38 @@ const state = {
 
 // ── fetch 封装 ──
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { "content-type": "application/json", ...(opts.headers || {}) },
-    ...opts,
-  });
-  if (res.status === 401) {
-    state.authed = false;
-    renderLogin();
-    throw new Error("未登录");
+  showLoading();
+  try {
+    const res = await fetch(path, {
+      headers: { "content-type": "application/json", ...(opts.headers || {}) },
+      ...opts,
+    });
+    if (res.status === 401) {
+      state.authed = false;
+      renderLogin();
+      throw new Error("未登录");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  } finally {
+    hideLoading();
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
 }
 
 // 文件上传（multipart，不能强制 json content-type）
 async function uploadFile(file) {
-  const form = new FormData();
-  form.append("file", file);
-  const res = await fetch("/api/upload", { method: "POST", body: form });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
+  showLoading();
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  } finally {
+    hideLoading();
+  }
 }
 
 function el(tag, attrs = {}, ...children) {
