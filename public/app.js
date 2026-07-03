@@ -336,7 +336,6 @@ async function renderMailList(folder) {
       listBox.appendChild(el("div", { class: "empty" }, "没有邮件"));
     } else {
       for (const m of data.items) {
-        const who = m.direction === "out" ? "→ " + m.to_addr : m.from_addr;
         const st = m.send_status ? SEND_STATUS[m.send_status] : null;
         const metaChildren = [];
         if (st) metaChildren.push(el("span", { class: "badge " + st.cls }, st.label));
@@ -357,7 +356,18 @@ async function renderMailList(folder) {
               class: "mail-row" + (m.is_read ? "" : " unread"),
               onclick: () => (location.hash = "#/mail/" + m.id),
             },
-            el("div", { class: "from" }, who),
+            el(
+              "div",
+              { class: "from", title: m.from_addr },
+              el("span", { class: "addr-tag" }, "From"),
+              el("span", { class: "addr-val" }, m.from_addr),
+            ),
+            el(
+              "div",
+              { class: "to", title: m.to_addr },
+              el("span", { class: "addr-tag" }, "To"),
+              el("span", { class: "addr-val" }, m.to_addr),
+            ),
             el(
               "div",
               { class: "subj" },

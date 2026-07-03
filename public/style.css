@@ -49,6 +49,15 @@ button.danger {
   color: var(--danger);
   border-color: #f0c4c4;
 }
+/* 危险确认主按钮（confirmDialog danger）：红底白字，而非蓝底红字 */
+button.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+button.primary.danger:hover {
+  background: #b91c1c;
+}
 button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -206,12 +215,21 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .mail-row.unread .from::before {
   content: "●";
   color: var(--accent);
   margin-right: 6px;
   font-size: 10px;
+}
+.mail-row .to {
+  width: 160px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .mail-row .subj {
   flex: 1;
@@ -625,6 +643,10 @@ button.mini {
     flex-wrap: wrap;
   }
   .mail-row .from {
+    width: auto;
+    flex: 1 1 100%;
+  }
+  .mail-row .to {
     width: auto;
     flex: 1 1 100%;
   }
