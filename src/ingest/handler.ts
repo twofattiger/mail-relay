@@ -11,6 +11,15 @@ export async function handleEmail(
   const envelopeFrom = message.from;
   const envelopeTo = message.to;
   const size = message.rawSize;
+
+  // Cloudflare Email Routing 在将流传递给 worker 时就已经能获知 rawSize。
+  // 若包含大附件超出系统/平台限制（例如超过 25MB），可直接在此处阻断，不进入后续 RPC 和处理。
+  const MAX_SIZE = 25 * 1024 * 1024;
+  if (size > MAX_SIZE) {
+    message.setReject("Message too large (exceeds 25MB)");
+    return;
+  }
+
   // 邮件头 From/To 供转发规则匹配：message.headers 已就绪，不消费 raw 流、不做完整 MIME 解析
   const headerFrom = message.headers.get("from") ?? undefined;
   const headerTo = message.headers.get("to") ?? undefined;
