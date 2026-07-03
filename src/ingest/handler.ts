@@ -38,7 +38,8 @@ export async function handleEmail(
   }
 
   // 3. 读流（只能读一次）
-  const raw = new Uint8Array(await streamToArrayBuffer(message.raw, size));
+  // 按照“接收带附件邮件时传输中断”问题解决方案，注释掉在内存中组装全量数组的逻辑
+  // const raw = new Uint8Array(await streamToArrayBuffer(message.raw, size));
 
   // 4. 返回 250 前同步落 R2 保底（投递责任转移点）
   const now = new Date();
@@ -46,7 +47,8 @@ export async function handleEmail(
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   const mailKey = crypto.randomUUID();
   const r2Key = `raw/${yyyy}/${mm}/${mailKey}.eml`;
-  await env.MAIL_R2.put(r2Key, raw);
+  // 直接将流传递给 R2 避免内存溢出与 CPU 超限
+  await env.MAIL_R2.put(r2Key, message.raw);
 
   // 5. 异步解析入库（即使失败，raw 已在 R2，可事后补索引）
   ctx.waitUntil(stub.ingest({ r2Key, envelopeFrom, envelopeTo, size }));
@@ -74,6 +76,9 @@ async function forwardAll(
   return ok;
 }
 
+// 因处理大附件时会导致 10ms CPU 时间超限和 128MB 内存超限，引起连接断开和无休止重投。
+// 已按方案一改为直接向 R2 写入 ReadableStream，此函数暂时注释保留，不予删除。
+/*
 async function streamToArrayBuffer(
   stream: ReadableStream<Uint8Array>,
   size: number,
@@ -89,3 +94,4 @@ async function streamToArrayBuffer(
   }
   return result.buffer;
 }
+*/
