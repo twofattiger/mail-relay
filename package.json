@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "个人域名邮箱系统：单 Cloudflare Worker + Durable Object SQLite + R2，收信存储与后台，发送层可插拔 Provider",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
