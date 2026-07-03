@@ -248,6 +248,14 @@ Worker 部署且 secret 注入后：
 1. **设置管理密码**：浏览器打开 Worker 域名（`https://mail-relay.<你的子域>.workers.dev` 或你绑定的自定义域）→ 首次访问进入「初始化」页 → 设置后台管理密码（至少 6 位，PBKDF2 哈希入库）。
 2. **填写主域**：登录后进「设置」页填入**主域名**（如 `yourdomain.com`）。此后「写邮件」的默认发件人为 `admin@主域`；回复邮件仍按「谁收谁发」自动带出原收件地址。此页还可调登录防爆破、每日发送配额、正文外置阈值，以及修改管理密码。
 3. **接通收信**：Cloudflare 控制台 → Email → Email Routing → **Catch-all address → Send to a Worker → 选择本 Worker**。此后发往 `任意前缀@你的域名` 的邮件都会进本系统。
+
+   **邮件路由配置参考图示：**
+
+   ![开启 Email Routing](../images/1.png)
+   
+   ![配置 Catch-all](../images/2.png)
+   
+   ![选择 Worker](../images/3.png)
 4. **配置发信通道**：左侧「发送通道」→ **新增通道** → 选择 Resend → 粘贴第 4 步创建的 Resend API key（可选填发件人显示名）→ 保存。
 5. **测试连接**：在通道列表点「测试」，会调用 Resend 校验 key；成功后点「激活」。同一时刻只有一个激活通道，发信即走它。
 
