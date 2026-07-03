@@ -507,3 +507,147 @@ button.mini {
   cursor: pointer;
   font-weight: 700;
 }
+
+/* ── 收件人通讯录联想下拉 ── */
+.autocomplete {
+  position: relative;
+}
+.contact-dropdown {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.contact-dropdown.open {
+  display: block;
+}
+.ac-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ac-item:hover {
+  background: var(--bg);
+}
+.ac-name {
+  font-weight: 600;
+}
+.ac-email {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── 表格横向滚动容器（移动端防撑破）── */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* ── 顶部条 + 抽屉遮罩：桌面端隐藏 ── */
+.topbar,
+.sidebar-mask {
+  display: none;
+}
+
+/* ── 移动端 ── */
+@media (max-width: 768px) {
+  .layout {
+    display: block;
+    height: auto;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .topbar .brand {
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .hamburger {
+    border: none;
+    background: none;
+    font-size: 20px;
+    padding: 4px 8px;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 220px;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-mask.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 35;
+  }
+  .main {
+    padding: 14px;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .toolbar h2 {
+    flex-basis: 100%;
+  }
+  .search {
+    max-width: none;
+    width: 100%;
+  }
+  .mail-row {
+    flex-wrap: wrap;
+  }
+  .mail-row .from {
+    width: auto;
+    flex: 1 1 100%;
+  }
+  .mail-row .subj {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+  .mail-row .meta {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .modal,
+  .dialog {
+    width: 100%;
+  }
+  .modal-mask {
+    padding: 20px 12px;
+    align-items: center;
+  }
+  .detail {
+    padding: 16px;
+  }
+  .login-card {
+    width: 100%;
+  }
+}

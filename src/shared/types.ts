@@ -66,6 +66,22 @@ export interface Attachment {
 // 详情视图：邮件 + 附件（正文可能来自 R2）
 export interface MailDetail extends Mail {
   attachments: Attachment[];
+  from_saved?: boolean; // 发件人邮箱是否已在通讯录（决定是否显示「存入通讯录」）
+}
+
+// 通讯录
+export interface Contact {
+  id: string;
+  name: string | null;
+  email: string;
+  created_at: number | null;
+  updated_at: number | null;
+}
+
+export interface UpsertContactInput {
+  id?: string;
+  name?: string;
+  email: string;
 }
 
 export interface ProviderRow {

@@ -5,6 +5,7 @@ import { getProviderDef } from "../providers/registry";
 import { ProviderError, type OutgoingAttachment } from "../providers/types";
 import { decryptJson } from "./crypto";
 import { getConfigInt } from "./config";
+import { parseAddress, saveContactIfAbsent } from "./contacts";
 import type { DoCtx } from "./ingest";
 
 const ATTACH_INLINE_MAX = 10 * 1024 * 1024; // ≤10MB 内联 base64，更大走签名 URL
@@ -134,6 +135,14 @@ export async function send(ctx: DoCtx, input: SendInput): Promise<SendResultDTO>
     headers,
     attachments: outAttachments,
   });
+
+  // 发送成功：收件人自动入通讯录（不覆盖已有名字）
+  if (result.status === "sent") {
+    for (const addr of input.to) {
+      const { name, email } = parseAddress(addr);
+      saveContactIfAbsent(ctx, email, name);
+    }
+  }
 
   return { mailId, outboxId, status: result.status, error: result.error };
 }

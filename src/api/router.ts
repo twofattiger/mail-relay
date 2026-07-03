@@ -17,6 +17,7 @@ import {
 import { handleSend } from "./send";
 import { handleUpload } from "./upload";
 import { changePassword, getSettings, updateSettings } from "./settings";
+import { deleteContact, listContacts, upsertContact } from "./contacts";
 import {
   activateProvider,
   createProvider,
@@ -107,6 +108,14 @@ async function route(
   if (path === "/api/settings" && method === "PUT") return updateSettings(req, env);
   if (path === "/api/settings/password" && method === "POST")
     return changePassword(req, env);
+
+  // /api/contacts ...
+  if (path === "/api/contacts" && method === "GET") return listContacts(req, env);
+  if (path === "/api/contacts" && method === "POST") return upsertContact(req, env);
+  if (seg[1] === "contacts" && seg[2] && method === "PUT")
+    return upsertContact(req, env, seg[2]);
+  if (seg[1] === "contacts" && seg[2] && method === "DELETE")
+    return deleteContact(env, seg[2]);
 
   // /api/providers ...
   if (path === "/api/providers/schema" && method === "GET") return getSchemas(env);

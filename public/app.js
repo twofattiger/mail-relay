@@ -10,6 +10,7 @@ const state = {
   folder: "inbox",
   page: 1,
   q: "",
+  contactQ: "",
 };
 
 // ── fetch 封装 ──
@@ -73,6 +74,19 @@ function escapeHtml(s) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+// 解析 "Name <a@b>" 或纯地址 → { name, email }
+function parseAddr(raw) {
+  const s = (raw || "").trim();
+  const m = s.match(/<([^>]+)>/);
+  if (m) {
+    return {
+      name: s.slice(0, m.index).trim().replace(/^["']|["']$/g, ""),
+      email: m[1].trim(),
+    };
+  }
+  return { name: "", email: s };
 }
 
 function stripHtml(html) {
@@ -171,6 +185,7 @@ const NAV = [
   { key: "sent", label: "已发送", folder: "sent" },
   { key: "spam", label: "垃圾邮件", folder: "spam" },
   { key: "trash", label: "废纸篓", folder: "trash" },
+  { key: "contacts", label: "通讯录" },
   { key: "providers", label: "发送通道" },
   { key: "rules", label: "收信规则" },
   { key: "forward-rules", label: "转发规则" },
@@ -185,7 +200,10 @@ function renderShell(activeKey, contentNode) {
         "button",
         {
           class: "nav-item" + (n.key === activeKey ? " active" : ""),
-          onclick: () => (location.hash = "#/" + n.key),
+          onclick: () => {
+            location.hash = "#/" + n.key;
+            closeDrawer();
+          },
         },
         n.label,
       ),
@@ -202,6 +220,7 @@ function renderShell(activeKey, contentNode) {
       {
         class: "nav-item",
         onclick: async () => {
+          closeDrawer();
           if (!(await confirmDialog("确定要退出登录吗？"))) return;
           await api("/api/logout", { method: "POST" });
           state.authed = false;
@@ -211,8 +230,36 @@ function renderShell(activeKey, contentNode) {
       "退出登录",
     ),
   );
+
+  // 移动端顶部条（含汉堡）与抽屉遮罩；桌面端 CSS 隐藏
+  const topbar = el(
+    "div",
+    { class: "topbar" },
+    el("button", { class: "hamburger", onclick: openDrawer }, "☰"),
+    el("div", { class: "brand" }, "📮 mail-relay"),
+  );
+  const mask = el("div", { class: "sidebar-mask", onclick: closeDrawer });
+
   app.innerHTML = "";
-  app.appendChild(el("div", { class: "layout" }, sidebar, el("div", { class: "main" }, contentNode)));
+  app.appendChild(
+    el(
+      "div",
+      { class: "layout" },
+      topbar,
+      sidebar,
+      mask,
+      el("div", { class: "main" }, contentNode),
+    ),
+  );
+}
+
+function openDrawer() {
+  document.querySelector(".sidebar")?.classList.add("open");
+  document.querySelector(".sidebar-mask")?.classList.add("open");
+}
+function closeDrawer() {
+  document.querySelector(".sidebar")?.classList.remove("open");
+  document.querySelector(".sidebar-mask")?.classList.remove("open");
 }
 
 // 侧边栏账号标签：已设主域显示 admin@主域，未设则可点击跳设置页
@@ -262,6 +309,17 @@ async function renderMailList(folder) {
     { class: "toolbar" },
     el("h2", {}, NAV.find((n) => n.folder === folder)?.label ?? "邮件"),
     search,
+    el(
+      "button",
+      {
+        onclick: () => {
+          state.page = 1;
+          renderMailList(folder);
+          toast("已刷新", "info");
+        },
+      },
+      folder === "inbox" ? "🔄 检查新邮件" : "🔄 刷新",
+    ),
     el("button", { class: "primary", onclick: () => (location.hash = "#/compose") }, "✏️ 写邮件"),
   );
   content.appendChild(toolbar);
@@ -406,7 +464,26 @@ async function renderDetail(id) {
 
     const detail = el("div", { class: "detail" });
     detail.appendChild(el("h2", {}, m.subject || "(无主题)"));
-    detail.appendChild(el("div", { class: "hdr-row" }, "发件人：" + m.from_addr));
+
+    const fromRow = el("div", { class: "hdr-row" }, "发件人：" + m.from_addr);
+    if (m.from_saved === false) {
+      const saveBtn = el("button", { class: "mini", style: "margin-left:8px" }, "＋ 存入通讯录");
+      saveBtn.onclick = async () => {
+        const { name, email } = parseAddr(m.from_addr);
+        try {
+          await api("/api/contacts", {
+            method: "POST",
+            body: JSON.stringify({ name, email }),
+          });
+          toast("已存入通讯录", "ok");
+          saveBtn.remove();
+        } catch (e) {
+          toast(e.message, "error");
+        }
+      };
+      fromRow.appendChild(saveBtn);
+    }
+    detail.appendChild(fromRow);
     detail.appendChild(el("div", { class: "hdr-row" }, "收件人：" + m.to_addr));
     detail.appendChild(el("div", { class: "hdr-row" }, "时间：" + new Date(m.created_at).toLocaleString("zh-CN")));
 
@@ -524,7 +601,58 @@ async function renderCompose(replyMailId) {
   const to = el("input", {
     placeholder: "收件人，多个用逗号分隔",
     value: reply ? reply.from_addr : "",
+    autocomplete: "off",
   });
+  // 收件人通讯录联想下拉
+  const acDropdown = el("div", { class: "contact-dropdown" });
+  const toWrap = el("div", { class: "autocomplete" }, to, acDropdown);
+  let acTimer = null;
+  const acFragment = () => {
+    const start = to.value.lastIndexOf(",") + 1;
+    return { start, text: to.value.slice(start).trim() };
+  };
+  const acClose = () => {
+    acDropdown.innerHTML = "";
+    acDropdown.classList.remove("open");
+  };
+  const acRun = async () => {
+    const { text } = acFragment();
+    if (!text) return acClose();
+    let data;
+    try {
+      data = await api("/api/contacts?pageSize=8&q=" + encodeURIComponent(text));
+    } catch {
+      return acClose();
+    }
+    if (!data.items.length) return acClose();
+    acDropdown.innerHTML = "";
+    for (const c of data.items) {
+      const label = c.name ? `${c.name} <${c.email}>` : c.email;
+      const item = el(
+        "div",
+        { class: "ac-item" },
+        c.name ? el("span", { class: "ac-name" }, c.name) : null,
+        el("span", { class: "ac-email" }, c.email),
+      );
+      item.onmousedown = (e) => {
+        e.preventDefault();
+        const { start } = acFragment();
+        const before = to.value.slice(0, start);
+        to.value = (before ? before + " " : "") + label + ", ";
+        acClose();
+        to.focus();
+      };
+      acDropdown.appendChild(item);
+    }
+    acDropdown.classList.add("open");
+  };
+  to.addEventListener("input", () => {
+    clearTimeout(acTimer);
+    acTimer = setTimeout(acRun, 150);
+  });
+  to.addEventListener("blur", () => setTimeout(acClose, 150));
+  to.addEventListener("keydown", (e) => e.key === "Escape" && acClose());
+
   const subject = el("input", {
     placeholder: "主题",
     value: reply ? (reply.subject?.startsWith("Re:") ? reply.subject : "Re: " + (reply.subject || "")) : "",
@@ -641,7 +769,7 @@ async function renderCompose(replyMailId) {
       "div",
       { class: "detail compose" },
       el("div", { class: "field" }, el("label", {}, "发件人"), from),
-      el("div", { class: "field" }, el("label", {}, "收件人"), to),
+      el("div", { class: "field" }, el("label", {}, "收件人"), toWrap),
       el("div", { class: "field" }, el("label", {}, "主题"), subject),
       el("div", { class: "field" }, el("label", {}, "正文"), el("div", { class: "rte" }, toolbar, editor)),
       el("div", { class: "field" }, attachBtn, fileInput, chips),
@@ -696,10 +824,14 @@ async function renderProviders() {
     );
     box.appendChild(
       el(
-        "table",
-        {},
-        el("thead", {}, el("tr", {}, el("th", {}, "名称"), el("th", {}, "类型"), el("th", {}, "状态"), el("th", {}, "最近验证"), el("th", {}, "操作"))),
-        el("tbody", {}, ...rows),
+        "div",
+        { class: "table-wrap" },
+        el(
+          "table",
+          {},
+          el("thead", {}, el("tr", {}, el("th", {}, "名称"), el("th", {}, "类型"), el("th", {}, "状态"), el("th", {}, "最近验证"), el("th", {}, "操作"))),
+          el("tbody", {}, ...rows),
+        ),
       ),
     );
   } catch (e) {
@@ -861,10 +993,14 @@ async function renderRules() {
     );
     box.appendChild(
       el(
-        "table",
-        {},
-        el("thead", {}, el("tr", {}, el("th", {}, "匹配字段"), el("th", {}, "包含"), el("th", {}, "动作"), el("th", {}, "状态"), el("th", {}, "操作"))),
-        el("tbody", {}, ...rows),
+        "div",
+        { class: "table-wrap" },
+        el(
+          "table",
+          {},
+          el("thead", {}, el("tr", {}, el("th", {}, "匹配字段"), el("th", {}, "包含"), el("th", {}, "动作"), el("th", {}, "状态"), el("th", {}, "操作"))),
+          el("tbody", {}, ...rows),
+        ),
       ),
     );
     content.appendChild(renderPager(data, renderRules));
@@ -995,10 +1131,14 @@ async function renderForwardRules() {
     );
     box.appendChild(
       el(
-        "table",
-        {},
-        el("thead", {}, el("tr", {}, el("th", {}, "发件人含"), el("th", {}, "收件人含"), el("th", {}, "转发到"), el("th", {}, "原件"), el("th", {}, "状态"), el("th", {}, "操作"))),
-        el("tbody", {}, ...rows),
+        "div",
+        { class: "table-wrap" },
+        el(
+          "table",
+          {},
+          el("thead", {}, el("tr", {}, el("th", {}, "发件人含"), el("th", {}, "收件人含"), el("th", {}, "转发到"), el("th", {}, "原件"), el("th", {}, "状态"), el("th", {}, "操作"))),
+          el("tbody", {}, ...rows),
+        ),
       ),
     );
     content.appendChild(renderPager(data, renderForwardRules));
@@ -1072,6 +1212,127 @@ async function delForwardRule(id) {
   await api("/api/forward-rules/" + id, { method: "DELETE" });
   toast("已删除", "info");
   renderForwardRules();
+}
+
+// ── 通讯录 ──
+async function renderContacts() {
+  const content = el("div", {});
+  renderShell("contacts", content);
+
+  const search = el("input", {
+    class: "search",
+    placeholder: "搜索姓名/邮箱…",
+    value: state.contactQ,
+  });
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      state.contactQ = search.value;
+      state.page = 1;
+      renderContacts();
+    }
+  });
+  content.appendChild(
+    el(
+      "div",
+      { class: "toolbar" },
+      el("h2", {}, "通讯录"),
+      search,
+      el("button", { class: "primary", onclick: () => openContactForm() }, "＋ 新增联系人"),
+    ),
+  );
+
+  const box = el("div", {}, "加载中…");
+  content.appendChild(box);
+  try {
+    const params = new URLSearchParams({ page: state.page, pageSize: 20 });
+    if (state.contactQ) params.set("q", state.contactQ);
+    const data = await api("/api/contacts?" + params.toString());
+    box.innerHTML = "";
+    if (!data.items.length) {
+      box.appendChild(
+        el("div", { class: "empty" }, "通讯录为空。发送成功的收件人会自动加入，也可手动新增。"),
+      );
+      return;
+    }
+    const rows = data.items.map((c) =>
+      el(
+        "tr",
+        {},
+        el("td", {}, c.name || "—"),
+        el("td", {}, c.email),
+        el(
+          "td",
+          {},
+          el(
+            "div",
+            { class: "row-actions" },
+            el("button", { onclick: () => openContactForm(c) }, "编辑"),
+            el("button", { class: "danger", onclick: () => delContact(c.id) }, "删除"),
+          ),
+        ),
+      ),
+    );
+    box.appendChild(
+      el(
+        "div",
+        { class: "table-wrap" },
+        el(
+          "table",
+          {},
+          el("thead", {}, el("tr", {}, el("th", {}, "姓名"), el("th", {}, "邮箱"), el("th", {}, "操作"))),
+          el("tbody", {}, ...rows),
+        ),
+      ),
+    );
+    content.appendChild(renderPager(data, renderContacts));
+  } catch (e) {
+    box.innerHTML = "";
+    box.appendChild(el("div", { class: "empty" }, "加载失败：" + e.message));
+  }
+}
+
+function openContactForm(existing) {
+  const name = el("input", { placeholder: "姓名（可选）", value: existing?.name || "" });
+  const email = el("input", { placeholder: "邮箱，如 a@b.com", value: existing?.email || "" });
+  const err = el("div", { class: "msg-error" });
+  const mask = el("div", { class: "modal-mask" });
+  const close = () => mask.remove();
+  const saveBtn = el("button", { class: "primary" }, "保存");
+  saveBtn.onclick = async () => {
+    err.textContent = "";
+    if (!email.value.trim()) return (err.textContent = "请填写邮箱");
+    try {
+      const url = existing ? "/api/contacts/" + existing.id : "/api/contacts";
+      await api(url, {
+        method: existing ? "PUT" : "POST",
+        body: JSON.stringify({ name: name.value.trim(), email: email.value.trim() }),
+      });
+      close();
+      toast("已保存", "ok");
+      renderContacts();
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  };
+  mask.appendChild(
+    el(
+      "div",
+      { class: "modal" },
+      el("h3", {}, existing ? "编辑联系人" : "新增联系人"),
+      el("div", { class: "field" }, el("label", {}, "姓名"), name),
+      el("div", { class: "field" }, el("label", {}, "邮箱"), email),
+      err,
+      el("div", { class: "modal-actions" }, el("button", { onclick: close }, "取消"), saveBtn),
+    ),
+  );
+  document.body.appendChild(mask);
+}
+
+async function delContact(id) {
+  if (!(await confirmDialog("确定删除该联系人？", { danger: true }))) return;
+  await api("/api/contacts/" + id, { method: "DELETE" });
+  toast("已删除", "info");
+  renderContacts();
 }
 
 // ── 设置 ──
@@ -1200,6 +1461,10 @@ function renderApp() {
   if (head === "mail" && arg) return renderDetail(arg);
   if (head === "providers") return renderProviders();
   if (head === "settings") return renderSettings();
+  if (head === "contacts") {
+    state.page = 1;
+    return renderContacts();
+  }
   if (head === "rules") {
     state.page = 1;
     return renderRules();

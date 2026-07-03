@@ -103,6 +103,18 @@ const MIGRATIONS: string[] = [
     updated_at   INTEGER
   );
   `,
+  // v4：通讯录。判重以邮箱为准（email UNIQUE）；发送成功的收件人自动入库，
+  // 收信详情可手动存入。撰写页据此做收件人联想。
+  `
+  CREATE TABLE IF NOT EXISTS contacts (
+    id         TEXT PRIMARY KEY,
+    name       TEXT,
+    email      TEXT NOT NULL UNIQUE,
+    created_at INTEGER,
+    updated_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+  `,
 ];
 
 // 运行迁移：读取当前 schema_version，顺序执行未应用的增量。

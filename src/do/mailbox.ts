@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
+  Contact,
   CreateProviderInput,
   Env,
   ForwardRule,
@@ -23,13 +24,20 @@ import type {
   UpsertRuleInput,
   VerifyResult,
 } from "../shared/types";
-import type { SettingsDTO, UpdateSettingsInput } from "../shared/types";
+import type { SettingsDTO, UpdateSettingsInput, UpsertContactInput } from "../shared/types";
 import { buildPage } from "../shared/http";
 import { ulid } from "../shared/ulid";
 import { getProviderDef, listProviderDefs } from "../providers/registry";
 import { encryptJson, decryptJson } from "./crypto";
 import { runMigrations } from "./schema";
 import { getConfig, setConfig, getConfigInt } from "./config";
+import {
+  contactExists,
+  deleteContact as doDeleteContact,
+  listContacts as doListContacts,
+  parseAddress,
+  upsertContact as doUpsertContact,
+} from "./contacts";
 import { hashPassword, verifyPassword } from "../shared/password";
 import { precheck as doPrecheck, ingest as doIngest, type DoCtx } from "./ingest";
 import { send as doSend, runAlarm, retryOutbox as doRetryOutbox } from "./send";
@@ -126,7 +134,11 @@ export class MailboxDO extends DurableObject<Env> {
       ...this.sql.exec(`SELECT * FROM attachments WHERE mail_id = ?`, id),
     ] as unknown as MailDetail["attachments"];
 
-    return { ...mail, attachments };
+    // 发件人是否已在通讯录（详情页据此决定是否显示「存入通讯录」）
+    const fromEmail = parseAddress(mail.from_addr).email;
+    const from_saved = contactExists(this.doCtx(), fromEmail);
+
+    return { ...mail, attachments, from_saved };
   }
 
   getThread(threadId: string): Mail[] {
@@ -541,6 +553,19 @@ export class MailboxDO extends DurableObject<Env> {
   // 失败/排队的出站邮件手动重试
   async retrySend(mailId: string, origin?: string): Promise<SendResultDTO> {
     return doRetryOutbox(this.doCtx(), mailId, origin);
+  }
+
+  // ─── 通讯录 ───
+  listContacts(q: PageQuery): Page<Contact> {
+    return doListContacts(this.doCtx(), q);
+  }
+
+  upsertContact(input: UpsertContactInput): { id: string } {
+    return doUpsertContact(this.doCtx(), input);
+  }
+
+  deleteContact(id: string): void {
+    doDeleteContact(this.doCtx(), id);
   }
 }
 
