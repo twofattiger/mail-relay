@@ -38,30 +38,27 @@ export async function handleEmail(
     if (v.keepOriginal === false && forwardOk) return;
   }
 
-  // 3~4. 返回 250 前，把 raw 流式落 R2 保底（投递责任转移点）。
+  // 3~4. 返回 250 前，把 raw 落 R2 保底（投递责任转移点）。
   const now = new Date();
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   const mailKey = crypto.randomUUID();
   const r2Key = `raw/${yyyy}/${mm}/${mailKey}.eml`;
 
-  // 流式把 raw 写入 R2：不在内存里组装整封邮件，CPU 占用极低（纯 I/O 等待，不计入 10ms 预算），
-  // 10MB+ 附件也不会内存/CPU 超限。
-  //
-  // 关键坑点：R2.put 要求 ReadableStream 具有“已知长度”，而 email 的 message.raw 是未知长度的裸流，
-  // 直接 put(message.raw) 会抛异常 —— CF 邮件路由端就表现为
-  // “upstream worker temporary error: worker script threw an exception”，并让发送方无限重投。
-  // 解决：用 FixedLengthStream(size) 包一层（size 来自 message.rawSize），即满足“已知长度”。
-  const fixed = new FixedLengthStream(size);
-  // 后台把 raw 泵入定长流；勿 await —— 需与下面的 put 并发流动，否则背压互相等待。
-  message.raw.pipeTo(fixed.writable).catch(() => {});
-  // 必须 await：确保 raw 在返回 250 前完整落盘，且流在 handler 生命周期内被消费完。
-  await env.MAIL_R2.put(r2Key, fixed.readable);
+  // 用 Response(...).arrayBuffer() 由运行时原生、高效地把整封 raw 读进内存（不是 JS 逐字节拷贝，
+  // CPU 开销很低），再整体 put 到 R2。
+  //  - 收信大小已由 precheck 限制（默认 ≤10MB），一次性进内存安全（远低于 128MB）。
+  //  - 关键：不再用 FixedLengthStream。它要求写入字节数精确等于 message.rawSize，而 SMTP 传输里
+  //    实际字节数常与 rawSize 不符（换行规范化/dot-stuffing 等），一旦不符 put 会一直等不到流结束
+  //    而挂起 → SMTP 传输中断、发送方重投，且后面的 ingest 根本不会被调用（邮件进不了库）。
+  //  - put ArrayBuffer 长度确定、不依赖 rawSize，落盘稳定。
+  const raw = await new Response(message.raw).arrayBuffer();
+  await env.MAIL_R2.put(r2Key, raw);
 
-  // 5. raw 已完整落盘后，再异步解析入库：
-  //    因上面已 await，ingest 从 R2 读 raw 时保证读到完整对象，不会再误判“解析失败”；
-  //    解析/入库失败也不影响已返回的 250，可事后据 raw 补索引。
-  ctx.waitUntil(stub.ingest({ r2Key, envelopeFrom, envelopeTo, size }));
+  // 5. raw 完整落盘后，异步解析入库（失败也不影响已返回的 250，可事后据 raw 补索引）。
+  ctx.waitUntil(
+    stub.ingest({ r2Key, envelopeFrom, envelopeTo, size: raw.byteLength }),
+  );
 }
 
 // 转发到全部目标（可多次调用 forward 投递到多个地址）；全部成功返回 true，

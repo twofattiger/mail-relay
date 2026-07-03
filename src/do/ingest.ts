@@ -113,34 +113,23 @@ export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResu
   // 线程归并：In-Reply-To/References 任一命中 → 沿用其 thread_id；否则自身为线程根
   const threadId = resolveThreadId(ctx, parsed, mailId);
 
-  // 附件写 R2 + 表
-  for (const att of parsed.attachments) {
-    const attId = ulid();
-    const key = `att/${mailId}/${attId}/${sanitize(att.filename)}`;
-    await env.MAIL_R2.put(key, att.content, {
-      httpMetadata: att.mimeType ? { contentType: att.mimeType } : undefined,
-    });
-    sql.exec(
-      `INSERT INTO attachments (id, mail_id, filename, mime_type, size_bytes, r2_key)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      attId,
-      mailId,
-      att.filename,
-      att.mimeType,
-      att.size,
-      key,
-    );
-  }
-
-  // 正文外置：body_html 超阈值 → 写 R2，列置 NULL
+  // 正文外置：body_html 超阈值 → 写 R2，列置 NULL。失败则回退内联，绝不因此阻断入库。
   let bodyHtml: string | null = parsed.html;
   let bodyR2Key: string | null = null;
   if (bodyHtml && byteLen(bodyHtml) > getConfigInt(ctx, "body_inline_max")) {
-    bodyR2Key = `body/${mailId}.html`;
-    await env.MAIL_R2.put(bodyR2Key, bodyHtml, {
-      httpMetadata: { contentType: "text/html; charset=utf-8" },
-    });
-    bodyHtml = null;
+    try {
+      const key = `body/${mailId}.html`;
+      await env.MAIL_R2.put(key, bodyHtml, {
+        httpMetadata: { contentType: "text/html; charset=utf-8" },
+      });
+      bodyR2Key = key;
+      bodyHtml = null;
+    } catch (e) {
+      console.error(
+        "正文外置 R2 失败，回退内联:",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
   }
 
   // body_text 截断 64KB 保护索引
@@ -149,6 +138,7 @@ export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResu
   // rules 自动归档
   const folder = classifyFolder(ctx, parsed);
 
+  // 先入库邮件本体：保证邮件一定可见，不被后续附件保存拖累。
   sql.exec(
     `INSERT INTO mails
       (id, direction, message_id, thread_id, from_addr, envelope_from, to_addr,
@@ -173,6 +163,32 @@ export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResu
     folder,
     now,
   );
+
+  // 附件尽力保存：单个失败仅记日志并跳过，不影响已入库的邮件（大附件仍可从原始 .eml 下载）。
+  for (const att of parsed.attachments) {
+    try {
+      const attId = ulid();
+      const key = `att/${mailId}/${attId}/${sanitize(att.filename)}`;
+      await env.MAIL_R2.put(key, att.content, {
+        httpMetadata: att.mimeType ? { contentType: att.mimeType } : undefined,
+      });
+      sql.exec(
+        `INSERT INTO attachments (id, mail_id, filename, mime_type, size_bytes, r2_key)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        attId,
+        mailId,
+        att.filename,
+        att.mimeType,
+        att.size,
+        key,
+      );
+    } catch (e) {
+      console.error(
+        `附件 ${att.filename} 保存失败，已跳过:`,
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
 
   return { mailId, duplicate: false, needsParse: false };
 }
