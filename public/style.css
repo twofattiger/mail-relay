@@ -424,6 +424,7 @@ button.mini {
   padding: 2px 6px;
   font-size: 12px;
   margin-right: 6px;
+  font-weight: bold;
 }
 
 /* ── toast ── */
