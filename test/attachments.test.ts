@@ -99,4 +99,25 @@ describe("附件收发", () => {
     const ob = await mb.getOutbox(res.outboxId);
     expect(ob!.status).toBe("sent");
   });
+
+  it("彻底删除邮件时一并清理附件的 R2 对象", async () => {
+    await activeMock();
+    mockState.mode = "ok";
+    const key = await putPending("del.txt", "bye");
+    const res = await mb.send({
+      to: ["b@x.com"],
+      from: "me@mydomain.com",
+      subject: "s",
+      text: "b",
+      pendingAttachments: [{ key, filename: "del.txt", size: 3, mimeType: "text/plain" }],
+    });
+    const m = await mb.getMail(res.mailId);
+    const attKey = m!.attachments[0].r2_key;
+    expect(await env.MAIL_R2.get(attKey)).not.toBeNull();
+
+    await mb.purgeMail(res.mailId);
+    // 附件的 R2 对象与邮件记录都应被清理
+    expect(await env.MAIL_R2.get(attKey)).toBeNull();
+    expect(await mb.getMail(res.mailId)).toBeNull();
+  });
 });

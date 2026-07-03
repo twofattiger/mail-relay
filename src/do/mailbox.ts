@@ -545,9 +545,9 @@ export class MailboxDO extends DurableObject<Env> {
       mailRows[0].raw_r2_key,
       ...attRows.map((a) => a.r2_key),
     ].filter((k): k is string => !!k);
-    for (const key of keys) {
-      await this.env.MAIL_R2.delete(key);
-    }
+    // 并行删除 R2 对象（附件/原始 .eml/外置正文）；用 allSettled 容错：
+    // 个别删除失败也不阻断下面的表行清理，避免邮件残留、删不干净。
+    await Promise.allSettled(keys.map((key) => this.env.MAIL_R2.delete(key)));
 
     this.sql.exec(`DELETE FROM attachments WHERE mail_id = ?`, id);
     this.sql.exec(`DELETE FROM outbox WHERE mail_id = ?`, id);

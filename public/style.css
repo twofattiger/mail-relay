@@ -403,6 +403,24 @@ tr:last-child td {
   margin-top: 4px;
 }
 
+/* 字节输入框的快捷标签 */
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.preset-chip {
+  padding: 2px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.preset-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* ── 列表行内小按钮与发送状态 ── */
 .mail-row .meta {
   display: flex;

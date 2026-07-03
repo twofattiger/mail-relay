@@ -79,6 +79,21 @@ function fmtSize(n) {
   return (n / 1024 / 1024).toFixed(1) + " MB";
 }
 
+// 字节输入框的快捷标签：点击直接把对应字节数填入 input。presets 为 [标签, 字节] 列表。
+function presetRow(input, presets) {
+  const row = el("div", { class: "preset-row" });
+  for (const [label, bytes] of presets) {
+    const chip = el("button", { type: "button", class: "preset-chip" }, label);
+    chip.onclick = () => {
+      input.value = String(bytes);
+    };
+    row.appendChild(chip);
+  }
+  return row;
+}
+const KB = 1024;
+const MB = 1024 * 1024;
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -1422,6 +1437,13 @@ async function renderSettings() {
         { class: "field" },
         el("label", {}, "最大收信大小（字节）"),
         maxMailSize,
+        presetRow(maxMailSize, [
+          ["5MB", 5 * MB],
+          ["10MB", 10 * MB],
+          ["15MB", 15 * MB],
+          ["20MB", 20 * MB],
+          ["25MB", 25 * MB],
+        ]),
         el(
           "div",
           { class: "hint" },
@@ -1433,6 +1455,13 @@ async function renderSettings() {
         { class: "field" },
         el("label", {}, "正文外置 R2 阈值（字节）"),
         bodyInlineMax,
+        presetRow(bodyInlineMax, [
+          ["128KB", 128 * KB],
+          ["256KB", 256 * KB],
+          ["512KB", 512 * KB],
+          ["768KB", 768 * KB],
+          ["1MB", 1 * MB],
+        ]),
         el(
           "div",
           { class: "hint" },
