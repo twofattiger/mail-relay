@@ -1467,13 +1467,16 @@ async function renderSettings() {
         el(
           "div",
           { class: "hint" },
-          "整封邮件大小上限，超过则在收信时直接拒收、不落库。含 base64 编码后的附件（约膨胀 33%），即原始附件约为此值的 75%。最大 26214400（25MB，CF 邮件路由硬上限），默认 10485760（10MB）。",
+          "整封邮件大小上限，超过则在收信时直接拒收、不落库。含 base64 编码后的附件（约膨胀 33%），即原始附件约为此值的 75%。最大 26214400（25MB，CF 邮件路由硬上限），默认 10485760（10MB）。" +
+            (isDoMode
+              ? "当前为 DO 模式（本地 SQLite，容量约 1GB），建议控制在 5MB（5242880）左右，避免快速撑满。"
+              : "当前为 R2 模式（大容量），可放心用到 25MB（26214400）。"),
         ),
       ),
       el(
         "div",
         { class: "field" },
-        el("label", {}, "正文外置 R2 阈值（字节）"),
+        el("label", {}, "正文外置阈值（字节）"),
         bodyInlineMax,
         presetRow(bodyInlineMax, [
           ["128KB", 128 * KB],
@@ -1485,7 +1488,8 @@ async function renderSettings() {
         el(
           "div",
           { class: "hint" },
-          "HTML 正文超过此大小则外置到 R2 存储。最大 1048576（1MB，受 Durable Object SQLite 单行上限约束），默认 262144（256KB）。",
+          "HTML 正文超过此大小，则从 mails 表移到独立 blob 存储（DO 模式=DO SQLite 分片，R2 模式=R2），避免撑破单行上限导致邮件入库失败。最大 1048576（1MB，受 Durable Object SQLite 单行 2MB 上限约束），默认 262144（256KB）。" +
+            (isDoMode ? "DO 模式下此项是必需项，请勿调得过大。" : ""),
         ),
       ),
       el("div", { class: "field" }, el("label", {}, "登录失败锁定阈值（次）"), loginMaxFails),
