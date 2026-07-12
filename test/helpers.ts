@@ -1,5 +1,23 @@
 import { registry } from "../src/providers/registry";
 import { ProviderError, type ProviderDef } from "../src/providers/types";
+import { isR2Mode, type BlobStore } from "../src/storage";
+import { R2BlobStore } from "../src/storage/r2";
+import { DoProxyBlobStore } from "../src/storage/do-proxy";
+
+// 测试用 blob 存储，与生产走完全相同的代码路径：
+//  - R2 模式：全局 R2（任意 DO 名都命中同一桶）；
+//  - DO 模式：写入【该测试自己的 DO】（stub），而非生产的 "main"，
+//    从而与用例内 ingest 读到的 ctx.blob 命中同一个 DO 的 SQLite。
+// 同一套用例因此可在两种模式下都跑通。
+export function testBlob(
+  env: { MAIL_R2?: R2Bucket; DATA_DURABLE_MODE?: string },
+  stub: DurableObjectStub<import("../src/do/mailbox").MailboxDO>,
+): BlobStore {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return isR2Mode(env as any)
+    ? new R2BlobStore(env.MAIL_R2!)
+    : new DoProxyBlobStore(stub);
+}
 
 // 模块级可变状态：控制 mock provider 的行为（send 结果 / verify 结果）。
 // DO 与测试运行在同一 workerd 隔离区，共享模块单例，故 DO 内的 mock 会读到这里的改动。

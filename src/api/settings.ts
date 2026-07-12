@@ -65,6 +65,17 @@ export async function updateSettings(req: Request, env: Env): Promise<Response> 
     return error(400, `最大收信大小不能超过 ${MAX_MAIL_SIZE_LIMIT} 字节（25MB）`);
   }
 
+  // DO 模式历史清理阈值：允许 0（表示关闭），其余需为非负整数
+  for (const key of ["retentionDays", "retentionMaxCount"] as const) {
+    if (body[key] !== undefined) {
+      const n = Number(body[key]);
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+        return error(400, `配置项 ${key} 必须为非负整数（0=关闭）`);
+      }
+      input[key] = n;
+    }
+  }
+
   await stubOf(env).updateSettings(input);
   return json({ ok: true });
 }

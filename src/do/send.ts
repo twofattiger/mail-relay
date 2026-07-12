@@ -363,15 +363,13 @@ async function persistAttachments(
 ): Promise<void> {
   if (!input.pendingAttachments?.length) return;
   for (const pa of input.pendingAttachments) {
-    const obj = await ctx.env.MAIL_R2.get(pa.key);
+    const obj = await ctx.blob.get(pa.key);
     if (!obj) continue; // pending 已丢失则跳过（不阻断发送）
     const attId = ulid();
     const key = `att/${mailId}/${attId}/${sanitizeName(pa.filename)}`;
     const bytes = new Uint8Array(await obj.arrayBuffer());
-    await ctx.env.MAIL_R2.put(key, bytes, {
-      httpMetadata: pa.mimeType ? { contentType: pa.mimeType } : undefined,
-    });
-    await ctx.env.MAIL_R2.delete(pa.key);
+    await ctx.blob.put(key, bytes, { contentType: pa.mimeType });
+    await ctx.blob.delete(pa.key);
     ctx.sql.exec(
       `INSERT INTO attachments (id, mail_id, filename, mime_type, size_bytes, r2_key)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -406,7 +404,7 @@ async function buildAttachmentsFromMail(
         contentType: att.mime_type ?? undefined,
       });
     } else {
-      const obj = await ctx.env.MAIL_R2.get(att.r2_key);
+      const obj = await ctx.blob.get(att.r2_key);
       if (!obj) continue;
       out.push({
         filename: att.filename,

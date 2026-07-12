@@ -10,11 +10,14 @@ import type {
 import { ulid } from "../shared/ulid";
 import { parseEml, extractRefIds, type ParsedMail } from "../mime/parse";
 import { getConfigInt } from "./config";
+import type { BlobStore } from "../storage";
 
 export interface DoCtx {
   sql: SqlStorage;
   storage: DurableObjectStorage;
   env: Env;
+  /** blob 存储（R2 或 DO SQLite），由 MailboxDO 按模式注入 */
+  blob: BlobStore;
 }
 
 // precheck：SMTP 会话内毫秒级决策。先按大小上限拒收，再查 rules 黑名单，最后算转发规则。
@@ -77,8 +80,8 @@ function matchForwardRule(rule: ForwardRule, from: string, to: string): boolean 
 }
 
 export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResult> {
-  const { sql, env } = ctx;
-  const obj = await env.MAIL_R2.get(input.r2Key);
+  const { sql } = ctx;
+  const obj = await ctx.blob.get(input.r2Key);
   if (!obj) {
     // raw 不在 R2：极异常，记最小兜底记录
     const mailId = ulid();
@@ -119,8 +122,8 @@ export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResu
   if (bodyHtml && byteLen(bodyHtml) > getConfigInt(ctx, "body_inline_max")) {
     try {
       const key = `body/${mailId}.html`;
-      await env.MAIL_R2.put(key, bodyHtml, {
-        httpMetadata: { contentType: "text/html; charset=utf-8" },
+      await ctx.blob.put(key, bodyHtml, {
+        contentType: "text/html; charset=utf-8",
       });
       bodyR2Key = key;
       bodyHtml = null;
@@ -169,9 +172,7 @@ export async function ingest(ctx: DoCtx, input: IngestInput): Promise<IngestResu
     try {
       const attId = ulid();
       const key = `att/${mailId}/${attId}/${sanitize(att.filename)}`;
-      await env.MAIL_R2.put(key, att.content, {
-        httpMetadata: att.mimeType ? { contentType: att.mimeType } : undefined,
-      });
+      await ctx.blob.put(key, att.content, { contentType: att.mimeType });
       sql.exec(
         `INSERT INTO attachments (id, mail_id, filename, mime_type, size_bytes, r2_key)
          VALUES (?, ?, ?, ?, ?, ?)`,

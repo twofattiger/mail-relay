@@ -1,4 +1,11 @@
 import type { Env } from "../shared/types";
+import { workerBlobStore } from "../storage";
+import { withTimeout } from "../shared/timeout";
+
+// raw 落盘硬超时：DO 模式下这一步是 Worker → stub.fetch → DO SQLite，
+// 关键路径任何 await 都要有上界。超时抛错 → Cloudflare 按投递失败处理 →
+// 发件方稍后重投（正常 SMTP 语义），远优于挂起拖死 SMTP 会话。
+const RAW_PUT_TIMEOUT_MS = 15_000;
 
 // email handler：SMTP 会话内决策 + raw 落盘保底 + 通知 DO（§6.1）
 export async function handleEmail(
@@ -53,7 +60,11 @@ export async function handleEmail(
   //    而挂起 → SMTP 传输中断、发送方重投，且后面的 ingest 根本不会被调用（邮件进不了库）。
   //  - put ArrayBuffer 长度确定、不依赖 rawSize，落盘稳定。
   const raw = await new Response(message.raw).arrayBuffer();
-  await env.MAIL_R2.put(r2Key, raw);
+  await withTimeout(
+    workerBlobStore(env).put(r2Key, raw, { contentType: "message/rfc822" }),
+    RAW_PUT_TIMEOUT_MS,
+    "raw blob 落盘",
+  );
 
   // 5. raw 完整落盘后，异步解析入库（失败也不影响已返回的 250，可事后据 raw 补索引）。
   ctx.waitUntil(
