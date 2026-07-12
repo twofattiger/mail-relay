@@ -12,8 +12,9 @@ import {
   moveMail,
   retryMail,
   setRead,
-  streamR2,
+  streamBlob,
 } from "./mails";
+import { workerBlobStore } from "../storage";
 import { handleSend } from "./send";
 import { handleUpload } from "./upload";
 import { changePassword, getSettings, updateSettings } from "./settings";
@@ -156,7 +157,7 @@ async function handleR2Sign(env: Env, token: string): Promise<Response> {
   const stub = env.MAILBOX.getByName("main");
   const meta = await stub.getAttachment(payload.id);
   if (!meta) return error(404, "附件不存在");
-  const obj = await env.MAIL_R2.get(meta.r2_key);
+  const obj = await workerBlobStore(env).get(meta.r2_key);
   if (!obj) return error(404, "附件内容缺失");
-  return streamR2(obj, meta.mime_type, meta.filename);
+  return streamBlob(obj, meta.mime_type, meta.filename);
 }

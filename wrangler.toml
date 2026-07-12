@@ -10,11 +10,32 @@ not_found_handling = "single-page-application"
 # /api/* 与 /r2sign/* 先走 Worker，其余路径先走静态资源（SPA 兜底）
 run_worker_first = ["/api/*", "/r2sign/*"]
 
-[[r2_buckets]]
-binding = "MAIL_R2"
-bucket_name = "mail-relay"
-# 部署前需先创建 R2 存储桶，执行命令：
-# npx wrangler r2 bucket create mail-relay
+# ─────────────────────────────────────────────────────────────────
+# 数据存储模式（附件 / 原始 .eml / 超阈值 HTML 正文 的落盘位置）
+#
+#   "0" 或不设置 = DO SQLite 模式（默认）
+#       · 无需 R2、无需绑定信用卡，开箱即部署
+#       · 附件/原始 .eml/外置正文 分片存入 DO 的 SQLite
+#       · 容量：Workers Free 每 DO 1 GB（账号总计 5 GB）；Paid 每 DO 10 GB
+#       · 单实例 DO 串行处理，下载大附件期间会阻塞其它请求
+#       · 【适用场景】只想简单收点邮件：验证码、通知类低量收信；
+#         附件少而小。可在「设置」页开启历史邮件自动清理，避免撑满配额。
+#
+#   "1" = R2 模式（体验完整功能，但需先绑卡开通 R2）
+#       · 必须同时取消下方 [[r2_buckets]] 的注释
+#       · 部署前执行：npx wrangler r2 bucket create mail-relay
+#       · 容量大（R2 免费额度 10GB 存储），大附件流量不进 DO、不阻塞
+#       · 【适用场景】要完整体验：常收发带附件的邮件、大附件、高留存。
+#
+#   ⚠️ 模式一经选定不要更改：切换后旧数据不会自动搬迁，附件/正文/raw 会读不到。
+# ─────────────────────────────────────────────────────────────────
+[vars]
+DATA_DURABLE_MODE = "0"
+
+# ── R2 模式才需要：把下面 3 行的注释去掉，并将上面 DATA_DURABLE_MODE 改为 "1" ──
+# [[r2_buckets]]
+# binding = "MAIL_R2"
+# bucket_name = "mail-relay"
 
 [[durable_objects.bindings]]
 name = "MAILBOX"

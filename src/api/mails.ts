@@ -1,5 +1,6 @@
 import type { Env } from "../shared/types";
 import { error, json, parsePageQuery } from "../shared/http";
+import { workerBlobStore, type BlobObject } from "../storage";
 
 type Stub = DurableObjectStub<import("../do/mailbox").MailboxDO>;
 
@@ -28,9 +29,9 @@ export async function getThread(env: Env, tid: string): Promise<Response> {
 export async function downloadAttachment(env: Env, id: string): Promise<Response> {
   const meta = await stubOf(env).getAttachment(id);
   if (!meta) return error(404, "附件不存在");
-  const obj = await env.MAIL_R2.get(meta.r2_key);
+  const obj = await workerBlobStore(env).get(meta.r2_key);
   if (!obj) return error(404, "附件内容缺失");
-  return streamR2(obj, meta.mime_type, meta.filename);
+  return streamBlob(obj, meta.mime_type, meta.filename);
 }
 
 // 标记已读 / 未读
@@ -88,18 +89,18 @@ export async function retryMail(req: Request, env: Env, id: string): Promise<Res
 export async function downloadRaw(env: Env, mailId: string): Promise<Response> {
   const rawKey = await stubOf(env).getRawKey(mailId);
   if (!rawKey) return error(404, "无原始邮件");
-  const obj = await env.MAIL_R2.get(rawKey);
+  const obj = await workerBlobStore(env).get(rawKey);
   if (!obj) return error(404, "原始邮件内容缺失");
-  return streamR2(obj, "message/rfc822", `${mailId}.eml`);
+  return streamBlob(obj, "message/rfc822", `${mailId}.eml`);
 }
 
-export function streamR2(
-  obj: R2ObjectBody,
+export function streamBlob(
+  obj: BlobObject,
   contentType: string | null,
   filename: string,
 ): Response {
   const headers = new Headers();
-  headers.set("content-type", contentType || "application/octet-stream");
+  headers.set("content-type", contentType || obj.contentType || "application/octet-stream");
   headers.set(
     "content-disposition",
     `attachment; filename="${encodeURIComponent(filename)}"`,

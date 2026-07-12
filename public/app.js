@@ -1399,6 +1399,10 @@ async function renderSettings() {
   const bodyInlineMax = el("input", { type: "number", min: "1", max: "1048576", value: s.bodyInlineMax });
   const loginMaxFails = el("input", { type: "number", value: s.loginMaxFails });
   const loginLockSeconds = el("input", { type: "number", value: s.loginLockSeconds });
+  // DO 模式历史邮件清理（0=关闭）。仅 DO 模式展示与生效。
+  const isDoMode = s.storageMode === "do";
+  const retentionDays = el("input", { type: "number", min: "0", value: s.retentionDays ?? 0 });
+  const retentionMaxCount = el("input", { type: "number", min: "0", value: s.retentionMaxCount ?? 0 });
   const gErr = el("div", { class: "msg-error" });
   const saveGeneral = el("button", { class: "primary" }, "保存设置");
   saveGeneral.onclick = async () => {
@@ -1407,18 +1411,30 @@ async function renderSettings() {
     if (domain && !/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(domain)) {
       return (gErr.textContent = "主域名格式不正确，例如 yourdomain.com");
     }
+    if (isDoMode) {
+      const rd = Number(retentionDays.value);
+      const rc = Number(retentionMaxCount.value);
+      if (!Number.isInteger(rd) || rd < 0 || !Number.isInteger(rc) || rc < 0) {
+        return (gErr.textContent = "历史清理阈值必须为非负整数（0=关闭）");
+      }
+    }
     saveGeneral.disabled = true;
     try {
+      const payload = {
+        primaryDomain: domain,
+        dailySendLimit: Number(dailySendLimit.value),
+        maxMailSize: Number(maxMailSize.value),
+        bodyInlineMax: Number(bodyInlineMax.value),
+        loginMaxFails: Number(loginMaxFails.value),
+        loginLockSeconds: Number(loginLockSeconds.value),
+      };
+      if (isDoMode) {
+        payload.retentionDays = Number(retentionDays.value);
+        payload.retentionMaxCount = Number(retentionMaxCount.value);
+      }
       await api("/api/settings", {
         method: "PUT",
-        body: JSON.stringify({
-          primaryDomain: domain,
-          dailySendLimit: Number(dailySendLimit.value),
-          maxMailSize: Number(maxMailSize.value),
-          bodyInlineMax: Number(bodyInlineMax.value),
-          loginMaxFails: Number(loginMaxFails.value),
-          loginLockSeconds: Number(loginLockSeconds.value),
-        }),
+        body: JSON.stringify(payload),
       });
       state.primaryDomain = domain;
       refreshAccountLabel();
@@ -1474,6 +1490,47 @@ async function renderSettings() {
       ),
       el("div", { class: "field" }, el("label", {}, "登录失败锁定阈值（次）"), loginMaxFails),
       el("div", { class: "field" }, el("label", {}, "登录锁定时长（秒）"), loginLockSeconds),
+      // DO 模式：历史邮件自动清理（R2 模式容量充裕，不展示）
+      isDoMode
+        ? el(
+            "div",
+            { class: "field" },
+            el("label", {}, "历史邮件保留天数（0=关闭）"),
+            retentionDays,
+            presetRow(retentionDays, [
+              ["关闭", 0],
+              ["30 天", 30],
+              ["90 天", 90],
+              ["180 天", 180],
+              ["365 天", 365],
+            ]),
+            el(
+              "div",
+              { class: "hint" },
+              "DO 模式（本地 SQLite）容量有限（Free 档每实例约 1GB）。开启后，每日自动删除超过该天数的历史邮件（含附件/正文/原始 .eml），彻底释放空间。0 表示不按天清理。",
+            ),
+          )
+        : null,
+      isDoMode
+        ? el(
+            "div",
+            { class: "field" },
+            el("label", {}, "历史邮件最大保留条数（0=关闭）"),
+            retentionMaxCount,
+            presetRow(retentionMaxCount, [
+              ["关闭", 0],
+              ["500", 500],
+              ["1000", 1000],
+              ["5000", 5000],
+              ["10000", 10000],
+            ]),
+            el(
+              "div",
+              { class: "hint" },
+              "只保留最新的这么多封邮件，更旧的每日自动清理。与「保留天数」任一命中即删除。0 表示不按条数清理。",
+            ),
+          )
+        : null,
       gErr,
       el("div", { class: "modal-actions" }, saveGeneral),
     ),

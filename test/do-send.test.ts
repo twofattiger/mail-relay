@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import type { MailboxDO } from "../src/do/mailbox";
-import { registerMockProvider, resetMock, mockState } from "./helpers";
+import { registerMockProvider, resetMock, mockState, testBlob } from "./helpers";
 
 let mb: ReturnType<typeof env.MAILBOX.getByName>;
 function stub() {
@@ -93,7 +93,7 @@ describe("MailboxDO.send", () => {
       "",
       "hi",
     ].join("\r\n");
-    await env.MAIL_R2.put(key, eml);
+    await testBlob(env, stub()).put(key, eml, { contentType: "message/rfc822" });
     const ing = await stub().ingest({
       r2Key: key,
       envelopeFrom: "alice@example.com",

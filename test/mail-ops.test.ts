@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { buildEml } from "./helpers";
+import { buildEml, testBlob } from "./helpers";
 
 let mb: ReturnType<typeof env.MAILBOX.getByName>;
 beforeEach(() => {
@@ -10,7 +10,7 @@ beforeEach(() => {
 async function ingestOne() {
   const key = `raw/test/${crypto.randomUUID()}.eml`;
   const eml = buildEml({ messageId: `<${crypto.randomUUID()}@x.com>` });
-  await env.MAIL_R2.put(key, eml);
+  await testBlob(env, mb).put(key, eml, { contentType: "message/rfc822" });
   const r = await mb.ingest({
     r2Key: key,
     envelopeFrom: "alice@example.com",
@@ -46,11 +46,11 @@ describe("邮件操作", () => {
   it("彻底删除清理 R2 与表行", async () => {
     const { mailId, key } = await ingestOne();
     await mb.moveMail(mailId, "trash");
-    expect(await env.MAIL_R2.get(key)).not.toBeNull();
+    expect(await testBlob(env, mb).get(key)).not.toBeNull();
 
     await mb.purgeMail(mailId);
     expect(await mb.getFolder(mailId)).toBeNull();
-    expect(await env.MAIL_R2.get(key)).toBeNull();
+    expect(await testBlob(env, mb).get(key)).toBeNull();
     expect(await mb.getMail(mailId)).toBeNull();
   });
 });

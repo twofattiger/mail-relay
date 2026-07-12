@@ -115,6 +115,25 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
   `,
+  // v5：DO 模式的 blob 存储。
+  // R2 模式下这两张表恒为空，不占存储、不产生 rows written 计费。
+  // 分片原因：DO SQLite 单行/单 BLOB 硬上限 2 MB。
+  `
+  CREATE TABLE IF NOT EXISTS blobs (
+    key          TEXT PRIMARY KEY,   -- 与 R2 模式共用同一 key 空间（raw/ body/ att/ pending/）
+    size         INTEGER NOT NULL,   -- 原始字节数（未编码，非 base64）
+    content_type TEXT,               -- 可空
+    chunk_count  INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL    -- 供后续 pending 区 GC 用
+  );
+
+  CREATE TABLE IF NOT EXISTS blob_chunks (
+    key  TEXT NOT NULL,
+    seq  INTEGER NOT NULL,
+    data BLOB NOT NULL,              -- 原生二进制，不是 base64
+    PRIMARY KEY (key, seq)
+  );
+  `,
 ];
 
 // 运行迁移：读取当前 schema_version，顺序执行未应用的增量。

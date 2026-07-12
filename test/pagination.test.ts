@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { env } from "cloudflare:test";
 import { parsePageQuery, buildPage, PAGE_SIZE_MAX } from "../src/shared/http";
-import { buildEml } from "./helpers";
+import { buildEml, testBlob } from "./helpers";
 
 describe("分页参数解析（§8.3）", () => {
   it("默认 page=1 pageSize=20", () => {
@@ -44,7 +44,7 @@ describe("listMails 深分页", () => {
         messageId: `<p${i}@example.com>`,
       });
       const key = `raw/test/${crypto.randomUUID()}.eml`;
-      await env.MAIL_R2.put(key, eml);
+      await testBlob(env, stub()).put(key, eml, { contentType: "message/rfc822" });
       await stub().ingest({
         r2Key: key,
         envelopeFrom: "alice@example.com",

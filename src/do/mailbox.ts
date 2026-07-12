@@ -41,24 +41,35 @@ import {
 import { hashPassword, verifyPassword } from "../shared/password";
 import { precheck as doPrecheck, ingest as doIngest, type DoCtx } from "./ingest";
 import { send as doSend, runAlarm, retryOutbox as doRetryOutbox } from "./send";
+import { doBlobStore, BLOB_PATH_PREFIX, isR2Mode, type BlobStore } from "../storage";
+import { runMaintenance, purgeMail as doPurgeMail, MAINTENANCE_INTERVAL_MS } from "./maintenance";
 
 const SECRET_MASK = "••••••••";
 
 export class MailboxDO extends DurableObject<Env> {
   private sql: SqlStorage;
   private storage: DurableObjectStorage;
+  private blob: BlobStore;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     this.sql = state.storage.sql;
     this.storage = state.storage;
+    // 按模式选择 R2 或本地 SQLite。R2 模式但未绑定 binding 会在此抛出，
+    // 属于部署配置错误，应当快速失败而非静默降级。
+    this.blob = doBlobStore(env, this.sql);
     state.blockConcurrencyWhile(async () => {
       runMigrations(this.sql);
+      // DO 模式启用周期维护（pending GC + 历史邮件清理）：若当前无 alarm 则排一次。
+      // alarm 自身会持续续期，形成每日心跳。R2 模式不需要（容量充裕、无本地清理）。
+      if (!isR2Mode(env) && (await this.storage.getAlarm()) == null) {
+        await this.storage.setAlarm(Date.now() + MAINTENANCE_INTERVAL_MS);
+      }
     });
   }
 
   private doCtx(): DoCtx {
-    return { sql: this.sql, storage: this.storage, env: this.env };
+    return { sql: this.sql, storage: this.storage, env: this.env, blob: this.blob };
   }
 
   // ─── 收信 ───
@@ -76,7 +87,56 @@ export class MailboxDO extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
-    await runAlarm(this.doCtx());
+    const ctx = this.doCtx();
+    // 1. 出站重试（到期 queued 项）；内部按最近一次未来重试续排 alarm。
+    await runAlarm(ctx);
+    // 2. DO 模式周期维护：pending 孤儿 GC + 历史邮件清理（按 meta 节流，至多每日一次）。
+    if (!isR2Mode(this.env)) {
+      await runMaintenance(ctx);
+      // 3. 维护心跳续期：若重试未续排 alarm，则排下一次维护，保证周期性不中断。
+      if ((await this.storage.getAlarm()) == null) {
+        await this.storage.setAlarm(Date.now() + MAINTENANCE_INTERVAL_MS);
+      }
+    }
+  }
+
+  /**
+   * 内部 blob 端点，仅供同 Worker 内的 DoProxyBlobStore 经 stub.fetch 调用。
+   * DO stub 不对公网暴露，无需额外鉴权（外部流量进不来）。
+   * R2 模式下 Worker 直连 R2，永远不会走到这里。
+   */
+  async fetch(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    if (!url.pathname.startsWith(BLOB_PATH_PREFIX)) {
+      return new Response("not found", { status: 404 });
+    }
+    const key = decodeURIComponent(url.pathname.slice(BLOB_PATH_PREFIX.length));
+    if (!key) return new Response("bad key", { status: 400 });
+
+    switch (req.method) {
+      case "PUT": {
+        // 上传上限 25MB（api/upload.ts）、收信 raw 上限 10MB（precheck），
+        // 一次性进内存安全（远低于 128MB）。
+        const bytes = await req.arrayBuffer();
+        await this.blob.put(key, bytes, {
+          contentType: req.headers.get("x-blob-content-type"),
+        });
+        return new Response(null, { status: 204 });
+      }
+      case "GET": {
+        const obj = await this.blob.get(key);
+        if (!obj) return new Response("not found", { status: 404 });
+        const headers = new Headers({ "x-blob-size": String(obj.size) });
+        if (obj.contentType) headers.set("x-blob-content-type", obj.contentType);
+        return new Response(obj.body, { headers });
+      }
+      case "DELETE": {
+        await this.blob.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      default:
+        return new Response("method not allowed", { status: 405 });
+    }
   }
 
   // ─── 邮件读取 ───
@@ -124,9 +184,9 @@ export class MailboxDO extends DurableObject<Env> {
       mail.is_read = 1;
     }
 
-    // 正文外置则从 R2 拉取
+    // 正文外置则从 blob 存储拉取
     if (mail.body_r2_key && !mail.body_html) {
-      const obj = await this.env.MAIL_R2.get(mail.body_r2_key);
+      const obj = await this.blob.get(mail.body_r2_key);
       if (obj) mail.body_html = await obj.text();
     }
 
@@ -485,6 +545,9 @@ export class MailboxDO extends DurableObject<Env> {
       dailySendLimit: getConfigInt(c, "daily_send_limit"),
       bodyInlineMax: getConfigInt(c, "body_inline_max"),
       maxMailSize: getConfigInt(c, "max_mail_size"),
+      storageMode: isR2Mode(this.env) ? "r2" : "do",
+      retentionDays: getConfigInt(c, "do_retention_days"),
+      retentionMaxCount: getConfigInt(c, "do_retention_max_count"),
     };
   }
 
@@ -508,6 +571,12 @@ export class MailboxDO extends DurableObject<Env> {
     if (input.maxMailSize !== undefined) {
       setConfig(c, "max_mail_size", String(input.maxMailSize));
     }
+    if (input.retentionDays !== undefined) {
+      setConfig(c, "do_retention_days", String(input.retentionDays));
+    }
+    if (input.retentionMaxCount !== undefined) {
+      setConfig(c, "do_retention_max_count", String(input.retentionMaxCount));
+    }
   }
 
   // ─── 邮件操作（已读 / 移动 / 删除）───
@@ -527,31 +596,10 @@ export class MailboxDO extends DurableObject<Env> {
     return rows.length ? rows[0].folder : null;
   }
 
-  // 永久删除：清理 R2（附件 / 外置正文 / 原始 .eml）后删表行
+  // 永久删除：清理 blob（附件 / 外置正文 / 原始 .eml）后删表行。
+  // 与历史清理共用 maintenance.purgeMail，保证删除行为一致。
   async purgeMail(id: string): Promise<void> {
-    const mailRows = [
-      ...this.sql.exec(
-        `SELECT body_r2_key, raw_r2_key FROM mails WHERE id = ?`,
-        id,
-      ),
-    ] as Array<{ body_r2_key: string | null; raw_r2_key: string | null }>;
-    if (!mailRows.length) return;
-    const attRows = [
-      ...this.sql.exec(`SELECT r2_key FROM attachments WHERE mail_id = ?`, id),
-    ] as Array<{ r2_key: string }>;
-
-    const keys = [
-      mailRows[0].body_r2_key,
-      mailRows[0].raw_r2_key,
-      ...attRows.map((a) => a.r2_key),
-    ].filter((k): k is string => !!k);
-    // 并行删除 R2 对象（附件/原始 .eml/外置正文）；用 allSettled 容错：
-    // 个别删除失败也不阻断下面的表行清理，避免邮件残留、删不干净。
-    await Promise.allSettled(keys.map((key) => this.env.MAIL_R2.delete(key)));
-
-    this.sql.exec(`DELETE FROM attachments WHERE mail_id = ?`, id);
-    this.sql.exec(`DELETE FROM outbox WHERE mail_id = ?`, id);
-    this.sql.exec(`DELETE FROM mails WHERE id = ?`, id);
+    await doPurgeMail(this.doCtx(), id);
   }
 
   // 失败/排队的出站邮件手动重试

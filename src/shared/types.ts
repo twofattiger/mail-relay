@@ -1,11 +1,14 @@
 // 平台绑定与全局环境
 export interface Env {
   MAILBOX: DurableObjectNamespace<import("../do/mailbox").MailboxDO>;
-  MAIL_R2: R2Bucket;
+  /** R2 模式才绑定；DO 模式下 wrangler.toml 未声明 [[r2_buckets]]，此处为 undefined */
+  MAIL_R2?: R2Bucket;
   ASSETS?: Fetcher;
   // secrets（加密/签名根密钥，不入库）
   CONFIG_MASTER_KEY: string;
   SESSION_SECRET: string;
+  /** 存储模式："1"=R2；"0"/空/未设置=DO SQLite。见 src/storage/index.ts */
+  DATA_DURABLE_MODE?: string;
   // 其余业务配置（密码、防爆破、配额、阈值、主域）已迁入 DO config 表
 }
 
@@ -60,6 +63,7 @@ export interface Attachment {
   filename: string;
   mime_type: string | null;
   size_bytes: number | null;
+  /** blob key（历史命名）。R2 模式=R2 object key；DO 模式=blobs.key。两模式共用同一 key 空间。 */
   r2_key: string;
 }
 
@@ -249,6 +253,12 @@ export interface SettingsDTO {
   dailySendLimit: number;
   bodyInlineMax: number;
   maxMailSize: number;
+  /** 当前存储模式（只读，前端据此决定是否展示 DO 清理设置） */
+  storageMode: "do" | "r2";
+  /** DO 模式历史邮件保留天数，0=关闭。仅 DO 模式生效 */
+  retentionDays: number;
+  /** DO 模式历史邮件最大保留条数，0=关闭。仅 DO 模式生效 */
+  retentionMaxCount: number;
 }
 
 export interface UpdateSettingsInput {
@@ -258,4 +268,6 @@ export interface UpdateSettingsInput {
   dailySendLimit?: number;
   bodyInlineMax?: number;
   maxMailSize?: number;
+  retentionDays?: number;
+  retentionMaxCount?: number;
 }

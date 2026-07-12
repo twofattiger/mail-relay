@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import type { MailboxDO } from "../src/do/mailbox";
-import { registerMockProvider, resetMock, mockState } from "./helpers";
+import { registerMockProvider, resetMock, mockState, testBlob } from "./helpers";
 
 let mb: ReturnType<typeof env.MAILBOX.getByName>;
 
@@ -20,7 +20,9 @@ async function activeMock() {
 
 async function putPending(name: string, body: string) {
   const key = `pending/${crypto.randomUUID()}/${name}`;
-  await env.MAIL_R2.put(key, new TextEncoder().encode(body));
+  await testBlob(env, mb).put(key, new TextEncoder().encode(body), {
+    contentType: "text/plain",
+  });
   return key;
 }
 
@@ -40,13 +42,13 @@ describe("附件收发", () => {
     expect(res.status).toBe("sent");
 
     // pending 已迁移删除
-    expect(await env.MAIL_R2.get(key)).toBeNull();
+    expect(await testBlob(env, mb).get(key)).toBeNull();
 
     // 邮件详情含附件，且正式 R2 对象存在
     const m = await mb.getMail(res.mailId);
     expect(m!.attachments.length).toBe(1);
     expect(m!.attachments[0].filename).toBe("hello.txt");
-    expect(await env.MAIL_R2.get(m!.attachments[0].r2_key)).not.toBeNull();
+    expect(await testBlob(env, mb).get(m!.attachments[0].r2_key)).not.toBeNull();
 
     // provider 收到内联 base64 附件
     const sent = mockState.lastMail as { attachments: Array<{ content?: string }> };
@@ -113,11 +115,11 @@ describe("附件收发", () => {
     });
     const m = await mb.getMail(res.mailId);
     const attKey = m!.attachments[0].r2_key;
-    expect(await env.MAIL_R2.get(attKey)).not.toBeNull();
+    expect(await testBlob(env, mb).get(attKey)).not.toBeNull();
 
     await mb.purgeMail(res.mailId);
-    // 附件的 R2 对象与邮件记录都应被清理
-    expect(await env.MAIL_R2.get(attKey)).toBeNull();
+    // 附件的 blob 对象与邮件记录都应被清理
+    expect(await testBlob(env, mb).get(attKey)).toBeNull();
     expect(await mb.getMail(res.mailId)).toBeNull();
   });
 });

@@ -5,9 +5,10 @@
 declare namespace Cloudflare {
   interface Env {
     MAILBOX: DurableObjectNamespace<import("../src/do/mailbox").MailboxDO>;
-    MAIL_R2: R2Bucket;
+    MAIL_R2?: R2Bucket;
     ASSETS?: Fetcher;
     CONFIG_MASTER_KEY: string;
     SESSION_SECRET: string;
+    DATA_DURABLE_MODE?: string;
   }
 }

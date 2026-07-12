@@ -10,6 +10,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:do": "vitest run --config vitest.do.config.ts",
+    "test:all": "npm run test && npm run test:do",
     "test:watch": "vitest"
   },
   "dependencies": {

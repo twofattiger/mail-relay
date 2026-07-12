@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import type { MailboxDO } from "../src/do/mailbox";
 import { parseAddress } from "../src/do/contacts";
-import { registerMockProvider, resetMock, mockState } from "./helpers";
+import { registerMockProvider, resetMock, mockState, testBlob } from "./helpers";
 
 let mb: ReturnType<typeof env.MAILBOX.getByName>;
 
@@ -84,7 +84,7 @@ describe("通讯录", () => {
       "",
       "body",
     ].join("\r\n");
-    await env.MAIL_R2.put(key, eml);
+    await testBlob(env, mb).put(key, eml, { contentType: "message/rfc822" });
     const ing = await mb.ingest({
       r2Key: key,
       envelopeFrom: "zoe@example.com",

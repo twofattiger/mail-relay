@@ -10,6 +10,8 @@ export const CONFIG_DEFAULTS = {
   daily_send_limit: "100",
   body_inline_max: "262144",
   max_mail_size: "10485760", // 整封收信大小上限（字节），默认 10MB；超过在 precheck 直接拒收
+  do_retention_days: "0", // DO 模式历史邮件保留天数，0=不按天清理（默认关闭）
+  do_retention_max_count: "0", // DO 模式历史邮件最大保留条数，0=不按条数清理（默认关闭）
 } as const;
 
 export type ConfigKey =

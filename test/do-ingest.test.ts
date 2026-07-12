@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { buildEml } from "./helpers";
+import { buildEml, testBlob } from "./helpers";
 
 // 每个测试用独立 DO 实例，天然隔离存储
 let mb: ReturnType<typeof env.MAILBOX.getByName>;
@@ -13,7 +13,7 @@ function stub() {
 
 async function ingestEml(eml: string, envelopeFrom = "alice@example.com") {
   const key = `raw/test/${crypto.randomUUID()}.eml`;
-  await env.MAIL_R2.put(key, eml);
+  await testBlob(env, stub()).put(key, eml, { contentType: "message/rfc822" });
   return stub().ingest({
     r2Key: key,
     envelopeFrom,
